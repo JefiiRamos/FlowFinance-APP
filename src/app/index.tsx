@@ -1,8 +1,10 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ActivityIndicator,
   Alert,
+  KeyboardAvoidingView,
   Modal,
+  Platform,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -11,10 +13,12 @@ import {
   TextInput,
   View,
 } from 'react-native'
-import { SafeAreaView } from 'react-native-safe-area-context'
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { StatusBar } from 'expo-status-bar'
+import { FinanceBackground, FinanceIcon, palette, type IconName } from '@/components/finance-visuals'
 
 import {
+  ApiError,
   askAssistant,
   clearAuthToken,
   createGoal,
@@ -27,7 +31,6 @@ import {
   fetchRecurringExpenses,
   fetchRecurringIncome,
   fetchTransactions,
-  getApiBaseUrl,
   getAuthToken,
   getMe,
   login,
@@ -56,17 +59,15 @@ import {
   type TransactionType,
 } from '@/lib/finance'
 
-type Section = 'inicio' | 'transacoes' | 'graficos' | 'metas' | 'recorrentes' | 'simulador' | 'assistente'
+type Section = 'inicio' | 'transacoes' | 'graficos' | 'metas' | 'recorrentes' | 'simulador' | 'assistente' | 'mais'
 type AuthMode = 'login' | 'register'
 
-const tabs: { id: Section; label: string; icon: string }[] = [
-  { id: 'inicio', label: 'Inicio', icon: '⌂' },
-  { id: 'transacoes', label: 'Transacoes', icon: '+' },
-  { id: 'graficos', label: 'Graficos', icon: '▥' },
-  { id: 'metas', label: 'Metas', icon: '◎' },
-  { id: 'recorrentes', label: 'Fixas', icon: '↻' },
-  { id: 'simulador', label: 'Simular', icon: '≈' },
-  { id: 'assistente', label: 'IA', icon: '?' },
+const tabs: { id: Section | 'adicionar'; label: string; icon: IconName }[] = [
+  { id: 'inicio', label: 'Início', icon: 'home' },
+  { id: 'transacoes', label: 'Extrato', icon: 'wallet' },
+  { id: 'adicionar', label: 'Adicionar', icon: 'plus' },
+  { id: 'assistente', label: 'Chat', icon: 'chat' },
+  { id: 'mais', label: 'Mais', icon: 'grid' },
 ]
 
 const profiles = [
@@ -111,10 +112,10 @@ export default function FlowFinanceApp() {
   const loadAll = useCallback(async () => {
     const [tx, goalRows, budgetRows, expenseRows, incomeRows] = await Promise.all([
       fetchTransactions(),
-      fetchGoals().catch(() => []),
-      fetchBudgetLimits().catch(() => ({})),
-      fetchRecurringExpenses().catch(() => []),
-      fetchRecurringIncome().catch(() => []),
+      fetchGoals(),
+      fetchBudgetLimits(),
+      fetchRecurringExpenses(),
+      fetchRecurringIncome(),
     ])
     setTransactions(tx)
     setGoalsList(goalRows)
@@ -129,8 +130,9 @@ export default function FlowFinanceApp() {
       const profile = await getMe()
       setUser(profile)
       if (profile.onboardingCompleted) await loadAll()
-    } catch {
-      clearAuthToken()
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 401) await clearAuthToken()
+      else Alert.alert('Conexão', error instanceof Error ? error.message : 'Não foi possível carregar seus dados.')
       setUser(null)
     } finally {
       setBooting(false)
@@ -162,10 +164,15 @@ export default function FlowFinanceApp() {
   }
 
   async function handleLogout() {
-    await logout()
+    try { await logout() } catch { /* A sessão local já foi removida. */ }
     setUser(null)
     setTransactions([])
     setGoalsList([])
+    setLimits({})
+    setRecurringExpenses([])
+    setRecurringIncome([])
+    setTransactionModalOpen(false)
+    setEditingTransaction(null)
     setSection('inicio')
   }
 
@@ -190,13 +197,15 @@ export default function FlowFinanceApp() {
 
   return (
     <View style={styles.app}>
-      <StatusBar style="light" />
+      <FinanceBackground />
+      <StatusBar style="dark" />
       <SafeAreaView style={styles.safeArea}>
-        <Header user={user} onLogout={handleLogout} />
-        <ScrollView
+        <Header user={user} section={section} onGoTo={setSection} />
+        {section === 'assistente' ? <AssistantSection onTransactionCreated={refresh} /> : <ScrollView
           style={styles.content}
+          keyboardShouldPersistTaps="handled"
           contentContainerStyle={styles.contentInner}
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor="#a78bfa" />}>
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={palette.primary} />}>
           {section === 'inicio' && <HomeSection transactions={transactions} goals={goalsList} onGoTo={setSection} />}
           {section === 'transacoes' && (
             <TransactionsSection
@@ -233,19 +242,13 @@ export default function FlowFinanceApp() {
             />
           )}
           {section === 'simulador' && <SimulatorSection transactions={transactions} />}
-          {section === 'assistente' && <AssistantSection onTransactionCreated={refresh} />}
-        </ScrollView>
+          {section === 'mais' && <MoreSection user={user} onGoTo={setSection} onLogout={handleLogout} />}
+        </ScrollView>}
       </SafeAreaView>
-      <BottomTabs section={section} onChange={setSection} />
-      <Pressable
-        style={styles.fab}
-        onPress={() => {
-          setSection('transacoes')
+      <BottomTabs section={section} onChange={setSection} onAdd={() => {
           setEditingTransaction(null)
           setTransactionModalOpen(true)
-        }}>
-        <Text style={styles.fabText}>+</Text>
-      </Pressable>
+        }} />
       <TransactionModal
         open={transactionModalOpen}
         editing={editingTransaction}
@@ -262,7 +265,8 @@ export default function FlowFinanceApp() {
 function LoadingScreen() {
   return (
     <View style={styles.centerScreen}>
-      <ActivityIndicator color="#a78bfa" size="large" />
+      <FinanceBackground />
+      <ActivityIndicator color={palette.primary} size="large" />
       <Text style={styles.muted}>Carregando FlowFinance...</Text>
     </View>
   )
@@ -275,7 +279,7 @@ function AuthScreen({
 }: {
   mode: AuthMode
   onModeChange: (mode: AuthMode) => void
-  onAuthenticated: (user: UserProfile) => void
+  onAuthenticated: (user: UserProfile) => Promise<void>
 }) {
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
@@ -286,7 +290,7 @@ function AuthScreen({
     setLoading(true)
     try {
       const profile = mode === 'login' ? await login(email, password) : await register(name, email, password)
-      onAuthenticated(profile)
+      await onAuthenticated(profile)
     } catch (error) {
       Alert.alert('Erro', error instanceof Error ? error.message : 'Nao foi possivel entrar.')
     } finally {
@@ -295,12 +299,16 @@ function AuthScreen({
   }
 
   return (
-    <SafeAreaView style={styles.authScreen}>
-      <StatusBar style="light" />
+    <View style={styles.app}>
+      <FinanceBackground />
+      <StatusBar style="dark" />
+      <SafeAreaView style={styles.safeArea}>
+      <KeyboardAvoidingView style={styles.safeArea} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.authScreen}>
       <View style={styles.brandBlock}>
         <Text style={styles.brandMark}>FlowFinance</Text>
-        <Text style={styles.brandTitle}>Seu financeiro no bolso</Text>
-        <Text style={styles.brandSubtitle}>Conectado ao mesmo backend do seu painel web.</Text>
+        <Text style={styles.brandTitle}>{mode === 'login' ? 'Bom ter você\nde volta.' : 'Seu dinheiro,\nmais organizado.'}</Text>
+        <Text style={styles.brandSubtitle}>{mode === 'login' ? 'Entre para acompanhar seus gastos, metas e tudo o que vem pela frente.' : 'Crie sua conta e dê o primeiro passo para uma vida financeira mais leve.'}</Text>
       </View>
       <View style={styles.panel}>
         <Segmented
@@ -315,10 +323,12 @@ function AuthScreen({
         <Field label="Email" value={email} onChangeText={setEmail} placeholder="voce@email.com" keyboardType="email-address" />
         <Field label="Senha" value={password} onChangeText={setPassword} placeholder="Minimo 6 caracteres" secureTextEntry />
         <PrimaryButton label={loading ? 'Aguarde...' : mode === 'login' ? 'Entrar' : 'Criar conta'} onPress={submit} disabled={loading} />
-        <Text style={styles.helper}>Mock ativo: demo@flowfinance.app / 123456</Text>
-        <Text style={styles.helper}>Cache: {getApiBaseUrl()}</Text>
+        <Text style={styles.helper}>Use a mesma conta do seu painel web.</Text>
       </View>
-    </SafeAreaView>
+      </ScrollView>
+      </KeyboardAvoidingView>
+      </SafeAreaView>
+    </View>
   )
 }
 
@@ -365,10 +375,14 @@ function OnboardingScreen({ user, onComplete }: { user: UserProfile; onComplete:
   }
 
   return (
-    <SafeAreaView style={styles.app}>
-      <ScrollView contentContainerStyle={styles.contentInner}>
-        <Text style={styles.title}>Vamos configurar sua conta</Text>
-        <Text style={styles.muted}>Esses dados criam receitas e despesas fixas, igual no onboarding web.</Text>
+    <View style={styles.app}>
+      <FinanceBackground />
+      <StatusBar style="dark" />
+      <SafeAreaView style={styles.safeArea}>
+      <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.contentInner}>
+        <Text style={styles.brandMark}>COMECE DO SEU JEITO</Text>
+        <Text style={styles.brandTitle}>Sua vida financeira,\ncom mais clareza.</Text>
+        <Text style={styles.muted}>Conte um pouco sobre sua rotina para organizar suas receitas, contas e objetivos.</Text>
         <View style={styles.panel}>
           <Field label="Nome" value={name} onChangeText={setName} />
           <Field label="Salario principal" value={salary} onChangeText={setSalary} keyboardType="numeric" placeholder="5000" />
@@ -393,19 +407,24 @@ function OnboardingScreen({ user, onComplete }: { user: UserProfile; onComplete:
         </View>
         <PrimaryButton label={saving ? 'Salvando...' : 'Finalizar'} onPress={submit} disabled={saving} />
       </ScrollView>
-    </SafeAreaView>
+      </SafeAreaView>
+    </View>
   )
 }
 
-function Header({ user, onLogout }: { user: UserProfile; onLogout: () => void }) {
+function Header({ user, section, onGoTo }: { user: UserProfile; section: Section; onGoTo: (section: Section) => void }) {
+  const name = user.name ?? user.email.split('@')[0]
+  const titles: Record<Section, string> = { inicio: name, transacoes: 'Suas transações', graficos: 'Visão financeira', metas: 'Metas e orçamento', recorrentes: 'Sua rotina financeira', simulador: 'Simular o futuro', assistente: 'Flow Assistant', mais: 'Seu espaço' }
+  const secondary = ['graficos', 'metas', 'recorrentes', 'simulador'].includes(section)
   return (
     <View style={styles.header}>
-      <View>
-        <Text style={styles.headerEyebrow}>FlowFinance</Text>
-        <Text style={styles.headerTitle}>Ola, {user.name ?? user.email.split('@')[0]}</Text>
+      {secondary ? <Pressable accessibilityLabel="Voltar para Mais" style={styles.roundButton} onPress={() => onGoTo('mais')}><FinanceIcon name="back" /></Pressable> : <View style={styles.avatar}><Text style={styles.avatarText}>{section === 'assistente' ? 'F' : name.charAt(0).toUpperCase()}</Text></View>}
+      <View style={styles.headerCopy}>
+        <Text style={styles.headerEyebrow}>{section === 'inicio' ? 'Que bom ver você por aqui' : section === 'assistente' ? 'Seu assistente financeiro' : 'FlowFinance'}</Text>
+        <Text style={styles.headerTitle}>{titles[section]}</Text>
       </View>
-      <Pressable style={styles.logoutButton} onPress={onLogout}>
-        <Text style={styles.logoutText}>Sair</Text>
+      <Pressable accessibilityLabel="Abrir metas" style={styles.roundButton} onPress={() => onGoTo('metas')}>
+        <FinanceIcon name="target" size={20} />
       </Pressable>
     </View>
   )
@@ -418,27 +437,47 @@ function HomeSection({ transactions, goals, onGoTo }: { transactions: Transactio
   const balance = getBalance(transactions)
   const projected = getProjectedEndOfMonthBalance(transactions, balance)
   const recent = [...transactions].sort((a, b) => +new Date(b.date) - +new Date(a.date)).slice(0, 6)
+  const [balanceVisible, setBalanceVisible] = useState(true)
+  const quickActions: { section: Section; label: string; icon: IconName }[] = [
+    { section: 'transacoes', label: 'Transações', icon: 'wallet' },
+    { section: 'metas', label: 'Metas', icon: 'target' },
+    { section: 'recorrentes', label: 'Contas fixas', icon: 'repeat' },
+    { section: 'graficos', label: 'Gráficos', icon: 'chart' },
+  ]
 
   return (
     <View style={styles.stack}>
-      <View style={styles.summaryGrid}>
-        <MetricCard title="Saldo atual" value={formatCurrency(balance)} tone={balance >= 0 ? 'good' : 'bad'} />
-        <MetricCard title="Receitas do mes" value={formatCurrency(monthlyIncome)} tone="good" />
-        <MetricCard title="Gastos do mes" value={formatCurrency(monthlyExpenses)} tone="bad" />
-        <MetricCard title="Projecao" value={formatCurrency(projected)} tone={projected >= 0 ? 'good' : 'bad'} />
+      <View style={styles.balanceCard}>
+        <View style={styles.rowBetween}>
+          <View style={styles.inline}><FinanceIcon name="wallet" size={18} /><Text style={styles.muted}>Seu saldo disponível</Text></View>
+          <Pressable accessibilityLabel="Ver transações" style={styles.balanceArrow} onPress={() => onGoTo('transacoes')}><FinanceIcon name="arrow" color="#FFFFFF" size={18} /></Pressable>
+        </View>
+        <View style={styles.inline}>
+          <Text adjustsFontSizeToFit numberOfLines={1} style={styles.balanceValue}>{balanceVisible ? formatCurrency(balance) : 'R$ •••••'}</Text>
+          <Pressable accessibilityLabel={balanceVisible ? 'Ocultar saldo' : 'Mostrar saldo'} style={styles.eyeButton} onPress={() => setBalanceVisible(!balanceVisible)}><FinanceIcon name={balanceVisible ? 'eye-off' : 'eye'} size={20} color={palette.muted} /></Pressable>
+        </View>
+        <Pressable style={styles.balancePill} onPress={() => onGoTo('simulador')}><Text style={styles.balancePillText}>Previsão do mês · {balanceVisible ? formatCurrency(projected) : '•••••'}</Text><FinanceIcon name="arrow" size={13} /></Pressable>
       </View>
-      <View style={styles.panel}>
-        <Text style={styles.cardTitle}>Inteligencia financeira</Text>
-        <Text style={styles.bodyText}>{financialInsight(transactions)}</Text>
+      <Text style={styles.cardTitle}>Ações rápidas</Text>
+      <View style={styles.quickActions}>
+        {quickActions.map((action) => <Pressable key={action.section} accessibilityRole="button" style={styles.quickAction} onPress={() => onGoTo(action.section)}><View style={styles.quickActionCircle}><FinanceIcon name={action.icon} /></View><Text style={styles.quickActionLabel}>{action.label}</Text></Pressable>)}
+      </View>
+      <View style={styles.summaryGrid}>
+        <MetricCard title="Receitas do mês" value={balanceVisible ? formatCurrency(monthlyIncome) : '•••••'} tone="good" />
+        <MetricCard title="Gastos do mês" value={balanceVisible ? formatCurrency(monthlyExpenses) : '•••••'} tone="bad" />
       </View>
       <View style={styles.panel}>
         <View style={styles.rowBetween}>
-          <Text style={styles.cardTitle}>Ultimas transacoes</Text>
+          <Text style={styles.cardTitle}>Últimas transações</Text>
           <Pressable onPress={() => onGoTo('transacoes')}>
             <Text style={styles.linkText}>Ver todas</Text>
           </Pressable>
         </View>
         {recent.length === 0 ? <EmptyText text="Nenhuma transacao registrada." /> : recent.map((item) => <TransactionRow key={item.id} item={item} />)}
+      </View>
+      <View style={styles.panel}>
+        <View style={styles.inline}><FinanceIcon name="sparkles" size={18} /><Text style={styles.cardTitle}>Um olhar sobre seu mês</Text></View>
+        <Text style={styles.bodyText}>{financialInsight(transactions)}</Text>
       </View>
       <View style={styles.panel}>
         <View style={styles.rowBetween}>
@@ -694,43 +733,60 @@ function SimulatorSection({ transactions }: { transactions: Transaction[] }) {
 }
 
 function AssistantSection({ onTransactionCreated }: { onTransactionCreated: () => Promise<void> }) {
+  const conversation = useRef<ScrollView>(null)
+  const [error, setError] = useState<string | null>(null)
   const [messages, setMessages] = useState<{ role: 'user' | 'assistant'; content: string }[]>([
-    { role: 'assistant', content: 'Oi! Me diga um gasto, receita ou pergunta sobre suas financas.' },
+    { role: 'assistant', content: 'Olá! Vamos deixar suas finanças mais leves? Me conte uma receita ou um gasto e eu registro para você.' },
   ])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
 
-  async function send() {
-    if (!input.trim()) return
-    const next = [...messages, { role: 'user' as const, content: input.trim() }]
+  async function send(text = input) {
+    if (!text.trim() || loading) return
+    const next = [...messages, { role: 'user' as const, content: text.trim() }]
     setMessages(next)
     setInput('')
     setLoading(true)
+    setError(null)
     try {
       const response = await askAssistant(next)
       setMessages([...next, { role: 'assistant', content: response.reply }])
       if (response.created) await onTransactionCreated()
     } catch (error) {
-      setMessages([...next, { role: 'assistant', content: error instanceof Error ? error.message : 'Nao consegui responder agora.' }])
+      setError(error instanceof Error ? error.message : 'Não consegui responder agora.')
+      setInput(text)
+      setMessages(messages)
     } finally {
       setLoading(false)
     }
   }
 
   return (
-    <View style={styles.stack}>
-      <Text style={styles.title}>Assistente financeiro</Text>
-      <View style={styles.panel}>
+    <KeyboardAvoidingView style={styles.chatScreen} behavior={Platform.OS === 'ios' ? 'padding' : undefined} keyboardVerticalOffset={90}>
+      <ScrollView ref={conversation} keyboardShouldPersistTaps="handled" contentContainerStyle={styles.conversation} onContentSizeChange={() => conversation.current?.scrollToEnd({ animated: true })}>
+        <View style={styles.chatIntro}>
+          <View style={styles.chatEmblem}><FinanceIcon name="sparkles" size={28} /></View>
+          <Text style={styles.title}>Mais clareza. Menos esforço.</Text>
+          <Text style={styles.chatSubtitle}>Sua vida financeira começa com uma conversa.</Text>
+        </View>
         {messages.map((message, index) => (
           <View key={`${message.role}-${index}`} style={[styles.chatBubble, message.role === 'user' ? styles.userBubble : styles.assistantBubble]}>
-            <Text style={styles.bodyText}>{message.content}</Text>
+            <Text style={message.role === 'user' ? styles.userMessageLabel : styles.messageLabel}>{message.role === 'user' ? 'VOCÊ' : 'FLOW ASSISTANT'}</Text>
+            <Text selectable style={message.role === 'user' ? styles.userMessageText : styles.bodyText}>{message.content}</Text>
           </View>
         ))}
-        {loading && <ActivityIndicator color="#a78bfa" />}
-        <Field label="Mensagem" value={input} onChangeText={setInput} placeholder="Ex: gastei 42 no uber hoje" />
-        <PrimaryButton label="Enviar" onPress={() => void send()} disabled={loading} />
+        {loading && <View style={[styles.chatBubble, styles.assistantBubble, styles.inline]}><ActivityIndicator color={palette.primary} /><Text style={styles.muted}>Organizando por aqui...</Text></View>}
+        {messages.length === 1 && <View style={styles.suggestions}>{['Gastei R$ 42 no Uber hoje', 'Recebi R$ 900 de freelance'].map((suggestion) => <Pressable key={suggestion} style={styles.suggestion} onPress={() => setInput(suggestion)}><Text style={styles.suggestionText}>{suggestion}</Text><FinanceIcon name="plus" size={16} /></Pressable>)}</View>}
+      </ScrollView>
+      <View style={styles.composerArea}>
+        {error && <Text accessibilityRole="alert" style={styles.badText}>{error}</Text>}
+        <View style={styles.composer}>
+          <TextInput accessibilityLabel="Mensagem para o assistente" multiline value={input} onChangeText={setInput} placeholder="Conte um gasto ou uma receita..." placeholderTextColor={palette.muted} style={styles.composerInput} />
+          <Pressable accessibilityRole="button" accessibilityLabel="Enviar mensagem" disabled={loading || !input.trim()} onPress={() => void send()} style={[styles.sendButton, (loading || !input.trim()) && styles.disabled]}><FinanceIcon name="send" size={20} color="#FFFFFF" /></Pressable>
+        </View>
+        <Text style={styles.helper}>Confira os lançamentos registrados no seu extrato.</Text>
       </View>
-    </View>
+    </KeyboardAvoidingView>
   )
 }
 
@@ -788,8 +844,10 @@ function TransactionModal({
 
   return (
     <Modal visible={open} animationType="slide" transparent onRequestClose={onClose}>
-      <View style={styles.modalBackdrop}>
+      <KeyboardAvoidingView style={styles.modalBackdrop} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <View style={styles.modalCard}>
+          <View style={styles.sheetHandle} />
+          <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.modalForm}>
           <Text style={styles.title}>{editing ? 'Editar transacao' : 'Nova transacao'}</Text>
           <Segmented
             value={type}
@@ -810,26 +868,45 @@ function TransactionModal({
             <SecondaryButton label="Cancelar" onPress={onClose} />
             <PrimaryButton label={saving ? 'Salvando...' : 'Salvar'} onPress={() => void save()} disabled={saving} />
           </View>
+          </ScrollView>
         </View>
-      </View>
+      </KeyboardAvoidingView>
     </Modal>
   )
 }
 
-function BottomTabs({ section, onChange }: { section: Section; onChange: (section: Section) => void }) {
+function MoreSection({ user, onGoTo, onLogout }: { user: UserProfile; onGoTo: (section: Section) => void; onLogout: () => void }) {
+  const entries: { id: Section; title: string; description: string; icon: IconName }[] = [
+    { id: 'metas', title: 'Metas e orçamento', description: 'Planeje seus objetivos e limites de gastos', icon: 'target' },
+    { id: 'graficos', title: 'Gráficos e relatórios', description: 'Entenda para onde vai seu dinheiro', icon: 'chart' },
+    { id: 'recorrentes', title: 'Receitas e contas fixas', description: 'Organize o que se repete todo mês', icon: 'repeat' },
+    { id: 'simulador', title: 'Simulador de cenários', description: 'Veja como suas escolhas mudam o futuro', icon: 'sparkles' },
+  ]
+  return <View style={styles.stack}>
+    <View style={styles.panel}><Text style={styles.title}>Tudo no seu ritmo.</Text><Text style={styles.muted}>{user.email}</Text></View>
+    <View style={styles.panel}>{entries.map((entry) => <Pressable key={entry.id} accessibilityRole="button" style={styles.moreRow} onPress={() => onGoTo(entry.id)}><View style={styles.quickActionCircle}><FinanceIcon name={entry.icon} /></View><View style={styles.headerCopy}><Text style={styles.cardTitle}>{entry.title}</Text><Text style={styles.muted}>{entry.description}</Text></View><FinanceIcon name="arrow" size={18} /></Pressable>)}</View>
+    <Pressable accessibilityRole="button" style={styles.signOut} onPress={onLogout}><FinanceIcon name="logout" size={19} /><Text style={styles.linkText}>Sair da conta</Text></Pressable>
+  </View>
+}
+
+function BottomTabs({ section, onChange, onAdd }: { section: Section; onChange: (section: Section) => void; onAdd: () => void }) {
+  const insets = useSafeAreaInsets()
+  const selected = ['metas', 'graficos', 'recorrentes', 'simulador'].includes(section) ? 'mais' : section
   return (
-    <View style={styles.bottomTabs}>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.bottomTabsInner}>
+    <View style={[styles.bottomTabs, { bottom: Math.max(insets.bottom, 12) }]}>
+      <View style={styles.bottomTabsInner}>
         {tabs.map((tab) => {
-          const active = tab.id === section
+          const active = tab.id === selected
+          if (tab.id === 'adicionar') return <Pressable key={tab.id} accessibilityRole="button" accessibilityLabel="Adicionar lançamento" style={styles.addTabSlot} onPress={onAdd}><View style={styles.addTab}><FinanceIcon name="plus" size={30} color="#FFFFFF" /></View></Pressable>
+          const destination = tab.id
           return (
-            <Pressable key={tab.id} style={[styles.tabButton, active && styles.tabButtonActive]} onPress={() => onChange(tab.id)}>
-              <Text style={[styles.tabIcon, active && styles.tabTextActive]}>{tab.icon}</Text>
+            <Pressable key={tab.id} accessibilityRole="tab" accessibilityState={{ selected: active }} style={[styles.tabButton, active && styles.tabButtonActive]} onPress={() => onChange(destination)}>
+              <FinanceIcon name={tab.icon} size={21} color={active ? palette.ink : palette.muted} />
               <Text style={[styles.tabLabel, active && styles.tabTextActive]}>{tab.label}</Text>
             </Pressable>
           )
         })}
-      </ScrollView>
+      </View>
     </View>
   )
 }
@@ -838,7 +915,7 @@ function TransactionRow({ item }: { item: Transaction }) {
   const isIncome = item.type === 'income'
   return (
     <View style={styles.transactionRow}>
-      <View style={[styles.transactionDot, isIncome ? styles.dotGood : styles.dotBad]} />
+      <View style={styles.transactionCategory}><FinanceIcon name={isIncome ? 'arrow' : 'wallet'} size={20} /></View>
       <View style={styles.transactionInfo}>
         <Text style={styles.bodyText} numberOfLines={1}>{item.description || 'Sem descricao'}</Text>
         <Text style={styles.muted}>{formatDate(item.date)} · {labelForCategory(item.category)}</Text>
@@ -876,15 +953,23 @@ function MetricCard({ title, value, tone }: { title: string; value: string; tone
 
 function Field(props: React.ComponentProps<typeof TextInput> & { label: string }) {
   const { label, ...inputProps } = props
+  const [passwordVisible, setPasswordVisible] = useState(false)
+  const icon: IconName | null = inputProps.secureTextEntry ? 'lock' : inputProps.keyboardType === 'email-address' ? 'mail' : label === 'Nome' ? 'user' : null
   return (
     <View style={styles.field}>
       <Text style={styles.label}>{label}</Text>
+      <View style={styles.fieldInputRow}>
+      {icon && <View style={styles.fieldIcon}><FinanceIcon name={icon} size={19} /></View>}
       <TextInput
         {...inputProps}
-        placeholderTextColor="#6b7280"
-        style={[styles.input, inputProps.style]}
+        accessibilityLabel={label}
+        secureTextEntry={inputProps.secureTextEntry && !passwordVisible}
+        placeholderTextColor={palette.muted}
+        style={[styles.input, { flex: 1 }, icon && { paddingLeft: 44 }, inputProps.secureTextEntry && { paddingRight: 46 }, inputProps.style]}
         autoCapitalize={inputProps.keyboardType === 'email-address' ? 'none' : undefined}
       />
+      {inputProps.secureTextEntry && <Pressable accessibilityLabel={passwordVisible ? 'Ocultar senha' : 'Mostrar senha'} style={styles.passwordEye} onPress={() => setPasswordVisible(!passwordVisible)}><FinanceIcon name={passwordVisible ? 'eye-off' : 'eye'} size={19} /></Pressable>}
+      </View>
     </View>
   )
 }
@@ -937,90 +1022,130 @@ function EmptyText({ text }: { text: string }) {
 }
 
 const styles = StyleSheet.create({
-  app: { flex: 1, backgroundColor: '#070711' },
+  sheetHandle: { width: 38, height: 4, borderRadius: 2, backgroundColor: '#BDC9D8', alignSelf: 'center' },
+  modalForm: { gap: 16, paddingBottom: 6 },
+  fieldInputRow: { flexDirection: 'row', alignItems: 'center' },
+  fieldIcon: { position: 'absolute', left: 16, zIndex: 1 },
+  passwordEye: { position: 'absolute', right: 6, padding: 12 },
+  inline: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  headerCopy: { flex: 1, gap: 4 },
+  avatar: { width: 46, height: 46, borderRadius: 23, backgroundColor: '#D5E0EC', alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: 'rgba(255,255,255,0.8)' },
+  avatarText: { color: '#405D86', fontSize: 20, fontWeight: '500' },
+  roundButton: { width: 44, height: 44, borderRadius: 22, backgroundColor: 'rgba(255,255,255,0.4)', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: 'rgba(255,255,255,0.6)' },
+  balanceCard: { gap: 26, padding: 22, borderRadius: 28, borderWidth: 1, borderColor: 'rgba(255,255,255,0.8)', backgroundColor: 'rgba(255,255,255,0.35)' },
+  balanceArrow: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: '#405D86' },
+  balanceValue: { flexShrink: 1, color: '#1C2B50', fontSize: 37, fontWeight: '300', letterSpacing: -1.5 },
+  eyeButton: { padding: 6 },
+  balancePill: { alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 8, paddingHorizontal: 12, borderRadius: 20, backgroundColor: 'rgba(255,255,255,0.40)' },
+  balancePillText: { color: '#405D86', fontSize: 11 },
+  quickActions: { flexDirection: 'row', justifyContent: 'space-between', gap: 8 },
+  quickAction: { flex: 1, alignItems: 'center', gap: 10 },
+  quickActionCircle: { width: 52, height: 52, borderRadius: 26, backgroundColor: 'rgba(255,255,255,0.65)', alignItems: 'center', justifyContent: 'center' },
+  quickActionLabel: { fontSize: 11, color: '#1C2B50', textAlign: 'center' },
+  transactionCategory: { width: 42, height: 42, borderRadius: 21, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(255,255,255,0.5)' },
+  moreRow: { flexDirection: 'row', alignItems: 'center', gap: 14, paddingVertical: 12 },
+  signOut: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', padding: 18, gap: 10 },
+  addTabSlot: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  addTab: { width: 58, height: 58, borderRadius: 29, alignItems: 'center', justifyContent: 'center', backgroundColor: '#304875', borderWidth: 2, borderColor: '#607AA0', shadowColor: '#1C2B50', shadowOffset: { width: 0, height: 5 }, shadowOpacity: 0.22, shadowRadius: 8, elevation: 4 },
+  chatScreen: { flex: 1, paddingBottom: 104 },
+  conversation: { padding: 22, gap: 16, width: '100%', maxWidth: 600, alignSelf: 'center', flexGrow: 1 },
+  chatIntro: { alignItems: 'center', gap: 14, paddingTop: 20, paddingBottom: 28 },
+  chatEmblem: { width: 64, height: 64, borderRadius: 32, backgroundColor: 'rgba(255,255,255,0.65)', alignItems: 'center', justifyContent: 'center' },
+  chatSubtitle: { color: '#778398', fontSize: 13, textAlign: 'center', lineHeight: 20 },
+  messageLabel: { color: '#778398', fontSize: 9, fontWeight: '600', letterSpacing: 1.2 },
+  userMessageLabel: { color: '#CDDCEC', fontSize: 9, fontWeight: '600', letterSpacing: 1.2 },
+  userMessageText: { color: '#FFFFFF', fontSize: 14, lineHeight: 22 },
+  suggestions: { gap: 10, marginTop: 6 },
+  suggestion: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: 15, borderRadius: 22, borderWidth: 1, borderColor: 'rgba(255,255,255,0.6)', backgroundColor: 'rgba(255,255,255,0.22)' },
+  suggestionText: { color: '#405D86', fontSize: 12, flex: 1 },
+  composerArea: { gap: 8, paddingHorizontal: 18, paddingTop: 10, maxWidth: 600, width: '100%', alignSelf: 'center' },
+  composer: { flexDirection: 'row', alignItems: 'center', gap: 8, padding: 8, borderRadius: 30, backgroundColor: 'rgba(255,255,255,0.78)', borderWidth: 1, borderColor: '#FFFFFF' },
+  composerInput: { flex: 1, color: '#1C2B50', fontSize: 14, lineHeight: 20, paddingHorizontal: 12, paddingVertical: 10, maxHeight: 104 },
+  sendButton: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', backgroundColor: '#405D86' },
+  app: { flex: 1, backgroundColor: '#EAF0F4' },
   safeArea: { flex: 1 },
-  centerScreen: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12, backgroundColor: '#070711' },
-  authScreen: { flex: 1, justifyContent: 'center', gap: 22, padding: 18, backgroundColor: '#070711' },
-  brandBlock: { gap: 8 },
-  brandMark: { color: '#a78bfa', fontSize: 15, fontWeight: '800', textTransform: 'uppercase' },
-  brandTitle: { color: '#f8fafc', fontSize: 34, lineHeight: 38, fontWeight: '900' },
-  brandSubtitle: { color: '#94a3b8', fontSize: 15, lineHeight: 22 },
-  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 10 },
-  headerEyebrow: { color: '#a78bfa', fontSize: 12, fontWeight: '800' },
-  headerTitle: { color: '#f8fafc', fontSize: 20, fontWeight: '800' },
-  logoutButton: { borderWidth: 1, borderColor: '#2f3142', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 8 },
-  logoutText: { color: '#cbd5e1', fontWeight: '700' },
+  centerScreen: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12, backgroundColor: '#EAF0F4' },
+  authScreen: { flexGrow: 1, justifyContent: 'center', gap: 32, padding: 26, paddingVertical: 48, maxWidth: 480, width: '100%', alignSelf: 'center' },
+  brandBlock: { gap: 18, alignItems: 'center', paddingBottom: 8 },
+  brandMark: { color: '#405D86', fontSize: 22, fontWeight: '500', letterSpacing: -1 },
+  brandTitle: { color: '#1C2B50', fontSize: 36, lineHeight: 43, fontWeight: '300', letterSpacing: -1.4, textAlign: 'center' },
+  brandSubtitle: { color: '#778398', fontSize: 14, lineHeight: 21, textAlign: 'center', maxWidth: 300 },
+  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, paddingHorizontal: 22, paddingVertical: 14, width: '100%', maxWidth: 600, alignSelf: 'center' },
+  headerEyebrow: { color: '#405D86', fontSize: 12, fontWeight: '500' },
+  headerTitle: { color: '#1C2B50', fontSize: 20, fontWeight: '500' },
+  logoutButton: { borderWidth: 1, borderColor: 'rgba(255,255,255,0.65)', borderRadius: 12, paddingHorizontal: 12, paddingVertical: 8 },
+  logoutText: { color: '#405D86', fontWeight: '500' },
   content: { flex: 1 },
-  contentInner: { padding: 16, paddingBottom: 118, gap: 14 },
-  stack: { gap: 14 },
-  panel: { gap: 12, padding: 14, borderRadius: 8, backgroundColor: 'rgba(15, 15, 26, 0.92)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)' },
-  title: { color: '#f8fafc', fontSize: 22, fontWeight: '900' },
-  cardTitle: { color: '#f8fafc', fontSize: 16, fontWeight: '800' },
-  bodyText: { color: '#e5e7eb', fontSize: 14, lineHeight: 20 },
-  muted: { color: '#94a3b8', fontSize: 12, lineHeight: 18 },
+  contentInner: { padding: 22, paddingBottom: 140, gap: 20, width: '100%', maxWidth: 600, alignSelf: 'center' },
+  stack: { gap: 22 },
+  panel: { gap: 14, padding: 20, borderRadius: 26, backgroundColor: 'rgba(255,255,255,0.42)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.65)' },
+  title: { color: '#1C2B50', fontSize: 25, fontWeight: '400', letterSpacing: -0.8 },
+  cardTitle: { color: '#1C2B50', fontSize: 15, fontWeight: '500' },
+  bodyText: { color: '#253756', fontSize: 14, lineHeight: 20 },
+  muted: { color: '#778398', fontSize: 12, lineHeight: 18 },
   helper: { color: '#64748b', fontSize: 11, textAlign: 'center' },
-  label: { color: '#cbd5e1', fontSize: 12, fontWeight: '800' },
+  label: { color: '#405D86', fontSize: 12, fontWeight: '500' },
   field: { gap: 6 },
-  input: { color: '#f8fafc', minHeight: 46, borderRadius: 8, paddingHorizontal: 12, backgroundColor: '#111322', borderWidth: 1, borderColor: '#25283a' },
+  input: { color: '#1C2B50', fontSize: 15, minHeight: 52, borderRadius: 28, paddingHorizontal: 20, backgroundColor: 'rgba(255,255,255,0.55)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.65)' },
   rowBetween: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 },
-  linkText: { color: '#a78bfa', fontWeight: '800' },
+  linkText: { color: '#405D86', fontWeight: '500' },
   summaryGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
-  metricCard: { width: '48%', minHeight: 92, justifyContent: 'space-between', padding: 12, borderRadius: 8, backgroundColor: '#111322', borderWidth: 1, borderColor: '#25283a' },
-  metricTitle: { color: '#94a3b8', fontSize: 12, fontWeight: '700' },
-  metricValue: { color: '#f8fafc', fontSize: 18, fontWeight: '900' },
-  metricGood: { color: '#34d399', fontSize: 18, fontWeight: '900' },
-  metricBad: { color: '#fb7185', fontSize: 18, fontWeight: '900' },
-  goodText: { color: '#34d399', fontSize: 13, fontWeight: '900' },
-  badText: { color: '#fb7185', fontSize: 13, fontWeight: '900' },
-  transactionRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.06)' },
+  metricCard: { flexGrow: 1, flexBasis: '45%', minHeight: 98, gap: 16, justifyContent: 'space-between', padding: 16, borderRadius: 22, backgroundColor: 'rgba(255,255,255,0.30)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.65)' },
+  metricTitle: { color: '#778398', fontSize: 12, fontWeight: '500' },
+  metricValue: { color: '#1C2B50', fontSize: 18, fontWeight: '500' },
+  metricGood: { color: '#278767', fontSize: 18, fontWeight: '500' },
+  metricBad: { color: '#BA5B64', fontSize: 18, fontWeight: '500' },
+  goodText: { color: '#278767', fontSize: 13, fontWeight: '500' },
+  badText: { color: '#BA5B64', fontSize: 13, fontWeight: '500' },
+  transactionRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: 'rgba(64,93,134,0.08)' },
   transactionDot: { width: 10, height: 10, borderRadius: 5 },
-  dotGood: { backgroundColor: '#34d399' },
-  dotBad: { backgroundColor: '#fb7185' },
+  dotGood: { backgroundColor: '#278767' },
+  dotBad: { backgroundColor: '#BA5B64' },
   transactionInfo: { flex: 1, minWidth: 0 },
-  segmented: { flexDirection: 'row', gap: 6, padding: 4, borderRadius: 8, backgroundColor: '#0b0c16', borderWidth: 1, borderColor: '#25283a' },
+  segmented: { flexDirection: 'row', gap: 6, padding: 4, borderRadius: 12, backgroundColor: 'rgba(255,255,255,0.30)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.50)' },
   segmentButton: { flex: 1, alignItems: 'center', paddingVertical: 10, borderRadius: 6 },
-  segmentActive: { backgroundColor: '#7c3aed' },
-  segmentText: { color: '#94a3b8', fontSize: 12, fontWeight: '800' },
+  segmentActive: { backgroundColor: '#405D86' },
+  segmentText: { color: '#778398', fontSize: 12, fontWeight: '500' },
   segmentTextActive: { color: '#fff' },
   choiceRow: { gap: 8, paddingVertical: 2 },
-  choiceChip: { paddingHorizontal: 12, paddingVertical: 9, borderRadius: 8, borderWidth: 1, borderColor: '#25283a', backgroundColor: '#111322' },
-  choiceChipActive: { borderColor: '#8b5cf6', backgroundColor: 'rgba(124,58,237,0.28)' },
-  choiceText: { color: '#cbd5e1', fontWeight: '800', fontSize: 12 },
-  choiceTextActive: { color: '#fff' },
-  primaryButton: { minHeight: 48, alignItems: 'center', justifyContent: 'center', borderRadius: 8, paddingHorizontal: 16, backgroundColor: '#7c3aed' },
+  choiceChip: { paddingHorizontal: 12, paddingVertical: 9, borderRadius: 12, borderWidth: 1, borderColor: 'rgba(255,255,255,0.50)', backgroundColor: 'rgba(255,255,255,0.55)' },
+  choiceChipActive: { borderColor: '#405D86', backgroundColor: 'rgba(64,93,134,0.12)' },
+  choiceText: { color: '#405D86', fontWeight: '500', fontSize: 12 },
+  choiceTextActive: { color: '#1C2B50' },
+  primaryButton: { minHeight: 52, alignItems: 'center', justifyContent: 'center', borderRadius: 28, paddingHorizontal: 22, backgroundColor: '#405D86' },
   compactButton: { minHeight: 38 },
-  primaryButtonText: { color: '#fff', fontWeight: '900' },
-  secondaryButton: { minHeight: 44, alignItems: 'center', justifyContent: 'center', borderRadius: 8, paddingHorizontal: 14, borderWidth: 1, borderColor: '#35384d', backgroundColor: '#111322' },
-  secondaryButtonText: { color: '#e5e7eb', fontWeight: '800' },
+  primaryButtonText: { color: '#fff', fontWeight: '500' },
+  secondaryButton: { minHeight: 48, alignItems: 'center', justifyContent: 'center', borderRadius: 28, paddingHorizontal: 20, borderWidth: 1, borderColor: 'rgba(255,255,255,0.65)', backgroundColor: 'rgba(255,255,255,0.40)' },
+  secondaryButtonText: { color: '#253756', fontWeight: '500' },
   disabled: { opacity: 0.55 },
-  emptyText: { color: '#94a3b8', textAlign: 'center', paddingVertical: 12 },
-  listLine: { color: '#e5e7eb', paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.06)' },
+  emptyText: { color: '#778398', textAlign: 'center', paddingVertical: 12 },
+  listLine: { color: '#253756', paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: 'rgba(64,93,134,0.08)' },
   goalBlock: { gap: 8, paddingVertical: 8 },
-  progressTrack: { height: 8, borderRadius: 8, backgroundColor: '#25283a', overflow: 'hidden' },
-  progressFill: { height: 8, borderRadius: 8, backgroundColor: '#8b5cf6' },
+  progressTrack: { height: 8, borderRadius: 12, backgroundColor: 'rgba(255,255,255,0.50)', overflow: 'hidden' },
+  progressFill: { height: 8, borderRadius: 12, backgroundColor: '#405D86' },
   chartRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  chartLabel: { width: 32, color: '#94a3b8', fontSize: 12, fontWeight: '800' },
+  chartLabel: { width: 32, color: '#778398', fontSize: 12, fontWeight: '500' },
   chartBars: { flex: 1, gap: 4 },
-  bar: { height: 8, borderRadius: 8 },
-  incomeBar: { backgroundColor: '#34d399' },
-  expenseBar: { backgroundColor: '#fb7185' },
+  bar: { height: 8, borderRadius: 12 },
+  incomeBar: { backgroundColor: '#278767' },
+  expenseBar: { backgroundColor: '#BA5B64' },
   categoryLine: { gap: 6 },
-  categoryTrack: { height: 8, borderRadius: 8, backgroundColor: '#25283a', overflow: 'hidden' },
-  categoryFill: { height: 8, borderRadius: 8, backgroundColor: '#a78bfa' },
-  budgetLine: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.06)' },
-  chatBubble: { padding: 12, borderRadius: 8, maxWidth: '92%' },
-  userBubble: { alignSelf: 'flex-end', backgroundColor: 'rgba(124,58,237,0.35)' },
-  assistantBubble: { alignSelf: 'flex-start', backgroundColor: '#111322' },
+  categoryTrack: { height: 8, borderRadius: 12, backgroundColor: 'rgba(255,255,255,0.50)', overflow: 'hidden' },
+  categoryFill: { height: 8, borderRadius: 12, backgroundColor: '#405D86' },
+  budgetLine: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: 'rgba(64,93,134,0.08)' },
+  chatBubble: { gap: 8, padding: 18, borderRadius: 24, maxWidth: '88%', borderWidth: 1, borderColor: 'rgba(255,255,255,0.45)' },
+  userBubble: { alignSelf: 'flex-end', backgroundColor: '#405D86', borderBottomRightRadius: 6, borderColor: '#405D86' },
+  assistantBubble: { alignSelf: 'flex-start', backgroundColor: 'rgba(255,255,255,0.65)', borderBottomLeftRadius: 6 },
   modalBackdrop: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.62)' },
-  modalCard: { maxHeight: '92%', gap: 12, padding: 16, borderTopLeftRadius: 18, borderTopRightRadius: 18, backgroundColor: '#090a14', borderWidth: 1, borderColor: '#25283a' },
+  modalCard: { maxHeight: '92%', gap: 16, padding: 24, paddingBottom: 38, borderTopLeftRadius: 32, borderTopRightRadius: 32, backgroundColor: '#EDF2F7', borderWidth: 1, borderColor: 'rgba(255,255,255,0.65)' },
   modalActions: { flexDirection: 'row', gap: 10, justifyContent: 'flex-end' },
-  bottomTabs: { position: 'absolute', left: 0, right: 0, bottom: 0, paddingBottom: 12, paddingTop: 8, backgroundColor: 'rgba(7,7,17,0.96)', borderTopWidth: 1, borderTopColor: '#25283a' },
-  bottomTabsInner: { gap: 8, paddingHorizontal: 12 },
-  tabButton: { width: 76, alignItems: 'center', gap: 3, borderRadius: 8, paddingVertical: 8, borderWidth: 1, borderColor: 'transparent' },
-  tabButtonActive: { backgroundColor: '#15172a', borderColor: '#39324f' },
-  tabIcon: { color: '#94a3b8', fontSize: 16, fontWeight: '900' },
-  tabLabel: { color: '#94a3b8', fontSize: 10, fontWeight: '800' },
-  tabTextActive: { color: '#c4b5fd' },
-  fab: { position: 'absolute', right: 18, bottom: 86, width: 58, height: 58, borderRadius: 29, alignItems: 'center', justifyContent: 'center', backgroundColor: '#7c3aed' },
-  fabText: { color: '#fff', fontSize: 34, lineHeight: 38, fontWeight: '700' },
+  bottomTabs: { position: 'absolute', left: 18, right: 18, alignSelf: 'center', maxWidth: 560, borderRadius: 40, backgroundColor: 'rgba(237,242,249,0.96)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.70)', shadowColor: '#314A70', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.12, shadowRadius: 20, elevation: 8 },
+  bottomTabsInner: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 8, height: 78 },
+  tabButton: { flex: 1, alignItems: 'center', gap: 6, borderRadius: 28, paddingVertical: 12 },
+  tabButtonActive: { backgroundColor: 'rgba(64,93,134,0.06)' },
+  tabIcon: { color: '#778398', fontSize: 16, fontWeight: '500' },
+  tabLabel: { color: '#778398', fontSize: 10, fontWeight: '500' },
+  tabTextActive: { color: '#405D86' },
+  fab: { position: 'absolute', right: 18, bottom: 86, width: 58, height: 58, borderRadius: 29, alignItems: 'center', justifyContent: 'center', backgroundColor: '#405D86' },
+  fabText: { color: '#fff', fontSize: 34, lineHeight: 38, fontWeight: '500' },
 })

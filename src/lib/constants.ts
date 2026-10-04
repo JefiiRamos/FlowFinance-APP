@@ -1,10 +1,10 @@
 export const CATEGORIES = [
-  'Alimentacao',
+  'Alimentação',
   'Transporte',
   'Moradia',
   'Lazer',
-  'Saude',
-  'Educacao',
+  'Saúde',
+  'Educação',
   'Investimentos',
   'Outros',
 ]
@@ -18,9 +18,9 @@ export const CATEGORY_ALIASES: Record<string, string> = {
 export const PAYMENT_METHODS = [
   'Dinheiro',
   'PIX',
-  'Cartao de Credito',
-  'Cartao de Debito',
-  'Transferencia',
+  'Cartão de Crédito',
+  'Cartão de Débito',
+  'Transferência',
   'Outros',
 ]
 
