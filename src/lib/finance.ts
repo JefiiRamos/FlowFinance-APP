@@ -1,5 +1,14 @@
 export type TransactionType = 'income' | 'expense'
 
+/** Accept Brazilian currency input and the decimal format returned by the API. */
+export function parseMoney(value: string): number {
+  const clean = value.trim().replace(/R\$|\s/g, '')
+  const normalized = clean.includes(',') ? clean.replace(/\./g, '').replace(',', '.') : clean
+  if (!/^-?\d+(\.\d{1,2})?$/.test(normalized)) return 0
+  const amount = Number(normalized)
+  return Number.isFinite(amount) ? amount : 0
+}
+
 export interface Transaction {
   id: string
   type: TransactionType

@@ -28,34 +28,44 @@ async function main() {
   try {
     const page = await browser.newPage({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 1 })
     const errors = []
+    let recurringUnavailable = false
     page.on('pageerror', error => errors.push(error.message))
     await page.route('**/api/**', async route => {
       const pathname = new URL(route.request().url()).pathname
+      if (pathname.endsWith('/recurring') && recurringUnavailable) {
+        await route.fulfill({ status: 405, body: '' })
+        return
+      }
       let data = []
       if (pathname.endsWith('/auth/login')) data = { token: 'preview-token', user }
       else if (pathname.endsWith('/auth/me')) data = user
       else if (pathname.endsWith('/transactions')) data = transactions
       else if (pathname.endsWith('/budget-limits')) data = {}
       else if (pathname.endsWith('/goals')) data = [{ id: 'g1', name: 'Minha reserva', targetAmount: 15000, currentAmount: 1800 }]
-      else if (pathname.endsWith('/ai/expense-assistant')) data = { reply: 'Despesa de R$ 42 registrada em Transporte.', created: true, transaction: transactions[1] }
+      else if (pathname.endsWith('/ai/expense-assistant')) data = { reply: 'Despesa de R$ 42 registrada em Transporte.', created: true, transaction: { ...transactions[1], amount: 42, category: 'Transporte', description: 'Uber' } }
       await route.fulfill({ json: data })
     })
     await page.goto('http://127.0.0.1:8831')
-    await page.getByText('Bom ter você', { exact: false }).waitFor()
+    await page.getByText('Entre na sua conta', { exact: true }).waitFor()
     await page.screenshot({ path: path.join(output, 'login.png') })
     await page.getByLabel('Email', { exact: true }).fill('preview@example.com')
     await page.getByLabel('Senha', { exact: true }).fill('preview-only')
     await page.getByText('Entrar', { exact: true }).last().click()
     await page.getByText('Seu saldo disponível', { exact: true }).waitFor()
-    assert.equal(await page.getByRole('tab').count(), 4)
-    assert.equal(await page.getByRole('button', { name: 'Adicionar lançamento' }).count(), 1)
+    assert.equal(await page.getByRole('tab').count(), 5)
+    const tabNames = await page.getByRole('tab').evaluateAll(nodes => nodes.map(node => node.getAttribute('aria-label')))
+    assert.deepEqual(tabNames, ['Início', 'Extrato', 'Assistente IA', 'Metas', 'Mais'])
     await page.screenshot({ path: path.join(output, 'home.png') })
-    await page.getByRole('tab', { name: 'Chat' }).click()
+    await page.getByRole('tab', { name: 'Assistente IA' }).click()
     await page.getByLabel('Mensagem para o assistente').fill('Gastei R$ 42 no Uber hoje')
     await page.getByRole('button', { name: 'Enviar mensagem' }).click()
     await page.getByText('Despesa de R$ 42 registrada em Transporte.').waitFor()
     await page.waitForTimeout(500) // Wait for the conversation scroll animation.
     await page.screenshot({ path: path.join(output, 'chat.png') })
+    await page.getByText('Lançamento registrado', { exact: true }).waitFor()
+    await page.getByRole('tab', { name: 'Início' }).click()
+    await page.getByRole('tab', { name: 'Assistente IA' }).click()
+    await page.getByText('Despesa de R$ 42 registrada em Transporte.').waitFor()
     await page.getByRole('tab', { name: 'Mais' }).click()
     for (const label of ['Metas e orçamento', 'Gráficos e relatórios', 'Receitas e contas fixas', 'Simulador de cenários']) assert.ok(await page.getByText(label, { exact: true }).count())
     await page.screenshot({ path: path.join(output, 'more.png') })
@@ -64,16 +74,50 @@ async function main() {
       await page.screenshot({ path: path.join(output, filename + '.png') })
       await page.getByRole('tab', { name: 'Mais' }).click()
     }
-    await page.getByRole('button', { name: 'Adicionar lançamento' }).click()
+    await page.getByRole('tab', { name: 'Extrato' }).click()
+    await page.getByLabel('Buscar transações').fill('Supermercado')
+    assert.equal(await page.getByText('Café da manhã', { exact: true }).count(), 0)
+    await page.getByLabel('Buscar transações').fill('')
+    await page.screenshot({ path: path.join(output, 'transactions.png') })
+    await page.getByRole('button', { name: 'Nova', exact: true }).click()
     await page.getByText('Nova transacao', { exact: true }).waitFor()
     await page.waitForTimeout(500) // Wait for the sheet opening animation.
     await page.screenshot({ path: path.join(output, 'transaction.png') })
     await page.getByText('Cancelar', { exact: true }).click()
     await page.getByText('Nova transacao', { exact: true }).waitFor({ state: 'hidden' })
-    await page.setViewportSize({ width: 320, height: 740 })
+    await page.getByText('Supermercado', { exact: true }).locator('..').locator('..').locator('..').getByRole('button', { name: 'Editar', exact: true }).click()
+    await page.getByLabel('Valor (R$)').waitFor()
+    assert.equal(await page.getByLabel('Valor (R$)').inputValue(), '246,80')
+    await page.getByText('Cancelar', { exact: true }).click()
+    await page.getByText('Editar transacao', { exact: true }).waitFor({ state: 'hidden' })
+    await page.getByText('Nova transacao', { exact: true }).waitFor({ state: 'hidden' })
     await page.getByRole('tab', { name: 'Início' }).click()
-    assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), 'The page must not overflow horizontally')
-    await page.screenshot({ path: path.join(output, 'home-small.png') })
+    for (const width of [320, 360, 390, 430, 844]) {
+      await page.setViewportSize({ width, height: width === 844 ? 390 : 844 })
+      assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), 'No horizontal overflow at ' + width)
+      for (const tab of await page.getByRole('tab').all()) {
+        const box = await tab.boundingBox()
+        assert.ok(box.x >= 0 && box.x + box.width <= width && box.height >= 48, 'Tabs must fit and remain touchable')
+      }
+      await page.screenshot({ path: path.join(output, 'home-' + width + '.png') })
+    }
+    user.name = 'Marina de Albuquerque Ferreira da Silva'
+    transactions[0].amount = 123456789.12
+    transactions[1].description = 'Compra de supermercado com descrição extensa para validar leitura em telas pequenas'
+    await page.setViewportSize({ width: 360, height: 844 })
+    await page.reload()
+    await page.getByText('Seu saldo disponível', { exact: true }).waitFor()
+    assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), 'Large values must not overflow')
+    await page.screenshot({ path: path.join(output, 'home-long-values.png') })
+    await page.getByRole('tab', { name: 'Extrato' }).click()
+    await page.getByText(transactions[1].description, { exact: true }).waitFor()
+    assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), 'Long descriptions must not overflow')
+    await page.screenshot({ path: path.join(output, 'transactions-long-values.png') })
+    recurringUnavailable = true
+    await page.reload()
+    await page.getByText('Seu saldo disponível', { exact: true }).waitFor()
+    await page.getByText('Receitas recorrentes temporariamente indisponíveis.', { exact: false }).waitFor()
+    assert.equal(await page.getByRole('tab').count(), 5)
     assert.deepEqual(errors, [])
     console.log('Mobile layout checks passed. Screenshots: dist/preview')
   } finally { await browser.close(); server.close() }

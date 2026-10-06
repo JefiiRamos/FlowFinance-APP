@@ -3,12 +3,12 @@ import { StyleSheet } from 'react-native'
 import Svg, { Path, Circle, Rect } from 'react-native-svg'
 
 export const palette = {
-  ink: '#1C2B50', primary: '#405D86', muted: '#778398',
-  success: '#278767', danger: '#BA5B64', border: 'rgba(255,255,255,0.65)',
+  ink: '#FFFFFF', primary: '#6E7CFF', muted: '#A1A7B3',
+  success: '#4ADE80', danger: '#F87171', border: 'rgba(255,255,255,0.08)',
 }
 
 export function FinanceBackground() {
-  return <LinearGradient pointerEvents="none" colors={['#EDF3F6', '#E8EFF3', '#BAC8D5', '#788FAB']} locations={[0, 0.42, 0.72, 1]} style={StyleSheet.absoluteFill} />
+  return <LinearGradient pointerEvents="none" colors={['#090B10', '#0F131C', '#141627']} style={StyleSheet.absoluteFill} />
 }
 
 export type IconName = 'home' | 'wallet' | 'plus' | 'chat' | 'grid' | 'target' | 'chart' | 'repeat' | 'sparkles' | 'arrow' | 'eye' | 'eye-off' | 'send' | 'back' | 'user' | 'logout' | 'check' | 'mail' | 'lock'

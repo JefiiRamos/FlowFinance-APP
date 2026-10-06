@@ -40,7 +40,7 @@ export interface RecurringIncome {
 
 
 export class ApiError extends Error {
-  constructor(message: string, public status: number) { super(message); this.name = 'ApiError' }
+  constructor(message: string, public status: number, public path?: string) { super(message); this.name = 'ApiError' }
 }
 
 export function getApiBaseUrl() {
@@ -65,10 +65,14 @@ async function request<T>(path: string, method = 'GET', body?: unknown, authenti
     if (response.status === 204) return undefined as T
     const raw = await response.text()
     let data: any
-    try { data = raw ? JSON.parse(raw) : undefined } catch { throw new ApiError('O servidor retornou uma resposta inválida. Tente novamente.', response.status) }
+    try { data = raw ? JSON.parse(raw) : undefined } catch {
+      if (response.ok) throw new ApiError(`O servidor retornou uma resposta inválida (HTTP ${response.status} · /api${path}).`, response.status, path)
+    }
     if (!response.ok) {
       if (authenticated && response.status === 401) await clearAuthToken()
-      throw new ApiError(data?.error || 'Não foi possível concluir a operação.', response.status)
+      const fallback = response.status === 405 ? 'Esta operação ainda não está disponível na API publicada.' : 'Não foi possível concluir a operação.'
+      const message = typeof data?.error === 'string' ? data.error : fallback
+      throw new ApiError(`${message} (HTTP ${response.status} · /api${path}).`, response.status, path)
     }
     return data as T
   } catch (error) {
