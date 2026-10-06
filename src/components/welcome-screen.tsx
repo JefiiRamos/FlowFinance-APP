@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
-import { AccessibilityInfo, Animated, Dimensions, Easing, Keyboard, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native'
+import { AccessibilityInfo, Animated, Dimensions, Easing, Keyboard, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native'
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { StatusBar } from 'expo-status-bar'
 import { LinearGradient } from 'expo-linear-gradient'
 import Svg, { Circle, Defs, Ellipse, LinearGradient as SvgGradient, Path, Rect, Stop } from 'react-native-svg'
 import { FinanceIcon, palette } from './finance-visuals'
+import { WelcomeKeyboardLayout } from './keyboard-layout'
 
 export function WelcomeScreen({ initialEmail = '', onContinue }: { initialEmail?: string; onContinue: (email: string) => Promise<void> }) {
   const [email, setEmail] = useState(initialEmail)
@@ -16,7 +17,7 @@ export function WelcomeScreen({ initialEmail = '', onContinue }: { initialEmail?
 
   useEffect(() => {
     const show = Keyboard.addListener(Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow', () => setKeyboardOpen(true))
-    const hide = Keyboard.addListener(Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide', () => {
+    const hide = Keyboard.addListener('keyboardDidHide', () => {
       setKeyboardOpen(false)
       scrollRef.current?.scrollTo({ y: 0, animated: true })
     })
@@ -91,8 +92,8 @@ export function WelcomeScreen({ initialEmail = '', onContinue }: { initialEmail?
       <StatusBar style="light" />
       <LinearGradient pointerEvents="none" colors={['#23264F', '#15182C', '#090B10', '#090B10']} locations={[0, 0.32, 0.62, 1]} style={StyleSheet.absoluteFill} />
       <SafeAreaView style={styles.safeArea}>
-        <KeyboardAvoidingView style={styles.safeArea} enabled={Platform.OS === 'ios'} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <ScrollView ref={scrollRef} scrollEnabled={keyboardOpen} keyboardShouldPersistTaps="handled" keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'} bounces={false} showsVerticalScrollIndicator={false} contentContainerStyle={[styles.content, compact && styles.compactContent]}>
+        <WelcomeKeyboardLayout>
+        <ScrollView ref={scrollRef} scrollEnabled={keyboardOpen} keyboardShouldPersistTaps="handled" keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'} automaticallyAdjustKeyboardInsets={false} bounces={false} showsVerticalScrollIndicator={false} contentContainerStyle={[styles.content, compact && styles.compactContent]}>
           <Animated.View testID="welcome-brand" onLayout={({ nativeEvent }) => setBrandCenter(nativeEvent.layout.y + nativeEvent.layout.height / 2)} style={[styles.brand, {
             zIndex: 1,
             opacity: brandOpacity,
@@ -164,7 +165,7 @@ export function WelcomeScreen({ initialEmail = '', onContinue }: { initialEmail?
             <Text style={styles.footer}>Mais clareza para cada decisão financeira.</Text>
           </Animated.View>
         </ScrollView>
-        </KeyboardAvoidingView>
+        </WelcomeKeyboardLayout>
       </SafeAreaView>
     </View>
   )
