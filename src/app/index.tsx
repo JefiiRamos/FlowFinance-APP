@@ -25,6 +25,7 @@ import { AuthFlowTransition } from '@/components/auth-flow-transition'
 import { AuthBackground, authVisuals } from '@/components/auth-visuals'
 import { useAuthModeMotion } from '@/components/use-auth-mode-motion'
 import { WelcomeKeyboardLayout } from '@/components/keyboard-layout'
+import { SharedEmailAnchor } from '@/components/auth-flow-anchors'
 
 import {
   ApiError,
@@ -207,13 +208,14 @@ export default function FlowFinanceApp() {
     return (
       <AuthFlowTransition
         active={authVisible}
-        welcome={<WelcomeScreen initialEmail={authEmail} onContinue={async (email) => {
+        email={authEmail}
+        welcome={<WelcomeScreen initialEmail={authEmail} verifiedMode={authVisible ? authMode : undefined} onContinue={async (email) => {
           const exists = await checkEmail(email)
           setAuthEmail(email)
           setAuthMode(exists ? 'login' : 'register')
           setAuthVisible(true)
         }} />}
-        auth={authEmail ? <AuthScreen key={authEmail} initialEmail={authEmail} mode={authMode} onModeChange={setAuthMode} onAuthenticated={handleAuthenticated} onBack={() => { Keyboard.dismiss(); setAuthVisible(false) }} /> : null}
+        auth={authEmail ? <AuthScreen key={authEmail} initialEmail={authEmail} mode={authMode} onAuthenticated={handleAuthenticated} onBack={() => { Keyboard.dismiss(); setAuthVisible(false) }} /> : null}
       />
     )
   }
@@ -312,13 +314,11 @@ function LoadingScreen() {
 function AuthScreen({
   initialEmail,
   mode,
-  onModeChange,
   onAuthenticated,
   onBack,
 }: {
   initialEmail: string
   mode: AuthMode
-  onModeChange: (mode: AuthMode) => void
   onAuthenticated: (user: UserProfile) => Promise<void>
   onBack: () => void
 }) {
@@ -360,44 +360,37 @@ function AuthScreen({
       <AuthBackground variant={mode} progress={modeProgress} />
       <StatusBar style="light" />
       <SafeAreaView style={styles.safeArea}>
+      <View style={{ height: compact ? 44 : 56 }} />
       <WelcomeKeyboardLayout>
       <ScrollView ref={scrollRef} scrollEnabled={keyboardOpen} bounces={false} showsVerticalScrollIndicator={false} keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'} keyboardShouldPersistTaps="handled" contentContainerStyle={[styles.authScreen, compact && styles.authCompact]}>
-      <Pressable accessibilityRole="button" accessibilityLabel="Voltar para boas-vindas" onPress={onBack} style={[styles.inline, { minHeight: 48, alignSelf: 'flex-start' }]}><FinanceIcon name="back" /><Text style={styles.linkText}>Voltar</Text></Pressable>
-      <View style={styles.brandBlock}>
-        <View style={authVisuals.brand}><FinanceIcon name="sparkles" size={25} color="#FFFFFF" /><Text style={authVisuals.brandName}>FlowFinance</Text></View>
+      <Pressable accessibilityRole="button" accessibilityLabel="Voltar para boas-vindas" onPress={onBack} style={[styles.inline, { minHeight: compact ? 44 : 48, alignSelf: 'flex-start' }]}><FinanceIcon name="back" /><Text style={styles.linkText}>Voltar</Text></Pressable>
+      <View style={[styles.brandBlock, compact && { gap: 8, paddingBottom: 0 }]}>
         <View style={{ width: '100%', height: compact ? 31 : 35 }}>
           <Animated.Text accessibilityElementsHidden={mode !== 'login'} importantForAccessibility={mode === 'login' ? 'auto' : 'no-hide-descendants'} style={[authVisuals.title, compact && { fontSize: 25, lineHeight: 31 }, { position: 'absolute', width: '100%', opacity: modeProgress.interpolate({ inputRange: [0, 1], outputRange: [1, 0] }) }]}>Entre na sua conta</Animated.Text>
           <Animated.Text accessibilityElementsHidden={mode !== 'register'} importantForAccessibility={mode === 'register' ? 'auto' : 'no-hide-descendants'} style={[authVisuals.title, compact && { fontSize: 25, lineHeight: 31 }, { position: 'absolute', width: '100%', opacity: modeProgress }]}>Crie sua conta</Animated.Text>
         </View>
-        <View style={{ width: '100%', height: 42 }}>
+        <View style={{ width: '100%', height: compact ? 21 : 42 }}>
           <Animated.Text accessibilityElementsHidden={mode !== 'login'} importantForAccessibility={mode === 'login' ? 'auto' : 'no-hide-descendants'} style={[authVisuals.subtitle, { position: 'absolute', width: '100%', opacity: modeProgress.interpolate({ inputRange: [0, 1], outputRange: [1, 0] }) }]}>Seu painel financeiro, sempre com você.</Animated.Text>
           <Animated.Text accessibilityElementsHidden={mode !== 'register'} importantForAccessibility={mode === 'register' ? 'auto' : 'no-hide-descendants'} style={[authVisuals.subtitle, { position: 'absolute', width: '100%', opacity: modeProgress }]}>Organize receitas, gastos e metas.</Animated.Text>
         </View>
       </View>
       <View style={styles.authForm}>
-        <Segmented
-          value={mode}
-          options={[
-            { id: 'login', label: 'Entrar' },
-            { id: 'register', label: 'Cadastrar' },
-          ]}
-          onChange={(value) => { if (!loading) { Keyboard.dismiss(); onModeChange(value as AuthMode) } }}
-        />
         <View style={{ gap: 0 }}>
-        <Animated.View testID="auth-name-reveal" pointerEvents={mode === 'register' ? 'auto' : 'none'} accessibilityElementsHidden={mode !== 'register'} importantForAccessibility={mode === 'register' ? 'auto' : 'no-hide-descendants'} style={{ height: modeProgress.interpolate({ inputRange: [0, 1], outputRange: [0, 92] }), overflow: 'hidden', opacity: modeProgress }}>
-          <Field authStyle label="Nome" value={name} onChangeText={setName} placeholder="Seu nome" editable={mode === 'register' && !loading} />
+        <Animated.View testID="auth-name-reveal" pointerEvents={mode === 'register' ? 'auto' : 'none'} accessibilityElementsHidden={mode !== 'register'} importantForAccessibility={mode === 'register' ? 'auto' : 'no-hide-descendants'} style={{ height: modeProgress.interpolate({ inputRange: [0, 1], outputRange: [0, compact ? 84 : 92] }), overflow: 'hidden', opacity: modeProgress }}>
+          {mode === 'register' && <Field authStyle label="Nome" value={name} onChangeText={setName} placeholder="Seu nome" editable={!loading} />}
         </Animated.View>
-        <View style={{ gap: 14 }}>
-        <View style={{ gap: 8 }}>
+        <View style={{ gap: compact ? 10 : 14 }}>
+        <View style={{ gap: compact ? 4 : 8 }}>
           <Text style={authVisuals.label}>E-mail</Text>
-          <Text style={styles.muted}>{email}</Text>
+          <SharedEmailAnchor stage="auth"><View style={[authVisuals.input, { justifyContent: 'center' }]}><Text numberOfLines={1} style={{ color: '#FFFFFF', fontSize: 16 }}>{email}</Text></View></SharedEmailAnchor>
+          <Text style={styles.muted}>{mode === 'login' ? 'Encontramos sua conta.' : 'Vamos criar sua conta com este e-mail.'}</Text>
           <Pressable accessibilityRole="button" onPress={onBack} style={{ minHeight: 44, justifyContent: 'center' }}><Text style={styles.linkText}>Alterar e-mail</Text></Pressable>
         </View>
         <Field authStyle label="Senha" value={password} onChangeText={setPassword} placeholder="Sua senha" secureTextEntry returnKeyType="go" onSubmitEditing={() => void submit()} editable={!loading} />
-        <Pressable accessibilityRole="button" accessibilityState={{ disabled: loading, busy: loading }} disabled={loading} onPress={() => void submit()} style={({ pressed }) => [authVisuals.primary, (pressed || loading) && { opacity: 0.7 }]}>
+        <Pressable accessibilityRole="button" accessibilityState={{ disabled: loading, busy: loading }} disabled={loading} onPress={() => void submit()} style={({ pressed }) => [authVisuals.primary, compact && { minHeight: 48, paddingVertical: 12 }, (pressed || loading) && { opacity: 0.7 }]}>
           <Text style={authVisuals.primaryText}>{loading ? 'Aguarde...' : mode === 'login' ? 'Entrar' : 'Criar conta'}</Text>
         </Pressable>
-        <Text style={styles.helper}>Use a mesma conta do seu painel web.</Text>
+        {!compact && <Text style={styles.helper}>Use a mesma conta do seu painel web.</Text>}
         </View>
         </View>
       </View>
@@ -1185,7 +1178,7 @@ const styles = StyleSheet.create({
   safeArea: { flex: 1 },
   centerScreen: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12, backgroundColor: '#090B10' },
   authScreen: { flexGrow: 1, flexShrink: 1, flexBasis: 0, justifyContent: 'center', gap: 20, paddingHorizontal: 24, paddingVertical: 24, maxWidth: 480, width: '100%', alignSelf: 'center' },
-  authCompact: { gap: 12, paddingHorizontal: 20, paddingVertical: 12 },
+  authCompact: { gap: 8, paddingHorizontal: 20, paddingVertical: 8 },
   authForm: { gap: 14 },
   brandBlock: { gap: 18, alignItems: 'center', paddingBottom: 8 },
   brandMark: { color: '#6E7CFF', fontSize: 22, fontWeight: '500', letterSpacing: -1 },

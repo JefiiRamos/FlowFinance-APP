@@ -1,13 +1,35 @@
-import { useEffect, useState, type ReactNode } from 'react'
-import { AccessibilityInfo, Animated, Easing, Keyboard, StyleSheet, View } from 'react-native'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
+import { AccessibilityInfo, Animated, Easing, Keyboard, StyleSheet, Text, View } from 'react-native'
+
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
+import { AuthAnchorContext, type AnchorRect, type AnchorStage } from './auth-flow-anchors'
+import { FinanceIcon } from './finance-visuals'
+import { authVisuals } from './auth-visuals'
 
 // Both pages move by the same distance, like two sections of one vertical page.
-export function AuthFlowTransition({ active, welcome, auth }: { active: boolean; welcome: ReactNode; auth: ReactNode }) {
+export function AuthFlowTransition({ active, email, welcome, auth }: { active: boolean; email: string; welcome: ReactNode; auth: ReactNode }) {
   const [progress] = useState(() => new Animated.Value(0))
   const [height, setHeight] = useState(0)
   const [settledActive, setSettledActive] = useState(false)
   const moving = settledActive !== active
-  const layoutReady = height > 0
+  const insets = useSafeAreaInsets()
+  const viewportRef = useRef<View>(null)
+  const currentProgress = useRef(0)
+  const currentHeight = useRef(0)
+  const [anchors, setAnchors] = useState<Partial<Record<AnchorStage, AnchorRect & { email: string }>>>({})
+  const anchorsReady = anchors.welcome?.email === email && anchors.auth?.email === email
+  const layoutReady = height > 0 && (!active || anchorsReady)
+  const report = useCallback((stage: AnchorStage, rect: AnchorRect) => {
+    viewportRef.current?.measureInWindow((x, y) => {
+      const offset = stage === 'welcome' ? -currentHeight.current * currentProgress.current : currentHeight.current * (1 - currentProgress.current)
+      const normalized = { ...rect, email, x: rect.x - x, y: rect.y - y - offset }
+      setAnchors(previous => ({ ...previous, [stage]: normalized }))
+    })
+  }, [email])
+  useEffect(() => {
+    const listener = progress.addListener(({ value }) => { currentProgress.current = value })
+    return () => progress.removeListener(listener)
+  }, [progress])
   const [reducedMotion, setReducedMotion] = useState<boolean | null>(null)
 
   useEffect(() => {
@@ -54,7 +76,8 @@ export function AuthFlowTransition({ active, welcome, auth }: { active: boolean;
   }, [active, layoutReady, progress, reducedMotion])
 
   return (
-    <View style={styles.viewport} onLayout={({ nativeEvent }) => setHeight(nativeEvent.layout.height)}>
+    <AuthAnchorContext.Provider value={{ active, moving, report }}>
+    <View ref={viewportRef} collapsable={false} style={styles.viewport} onLayout={({ nativeEvent }) => { currentHeight.current = nativeEvent.layout.height; setHeight(nativeEvent.layout.height) }}>
       <Animated.View
         testID="auth-flow-welcome"
         style={[styles.page, { transform: [{ translateY: progress.interpolate({ inputRange: [0, 1], outputRange: [0, -height] }) }] }]}
@@ -69,7 +92,18 @@ export function AuthFlowTransition({ active, welcome, auth }: { active: boolean;
         accessibilityElementsHidden={!active || moving}
         importantForAccessibility={!active || moving ? 'no-hide-descendants' : 'auto'}
       >{auth}</Animated.View>
+      {(active || moving) && <View testID="auth-shared-brand" pointerEvents="none" accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={[authVisuals.brand, { position: 'absolute', left: 0, right: 0, top: insets.top + (height - insets.top - insets.bottom < 680 ? 12 : 24) }]}>
+        <FinanceIcon name="sparkles" size={25} color="#FFFFFF" /><Text style={authVisuals.brandName}>FlowFinance</Text>
+      </View>}
+      {moving && anchorsReady && anchors.welcome && anchors.auth && <Animated.View testID="auth-shared-email" pointerEvents="none" accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={[authVisuals.input, {
+        position: 'absolute', left: anchors.welcome.x, top: anchors.welcome.y, width: anchors.welcome.width, height: anchors.welcome.height, justifyContent: 'center',
+        transform: [
+          { translateX: progress.interpolate({ inputRange: [0, 1], outputRange: [0, anchors.auth.x - anchors.welcome.x] }) },
+          { translateY: progress.interpolate({ inputRange: [0, 1], outputRange: [0, anchors.auth.y - anchors.welcome.y] }) },
+        ],
+      }]}><Text numberOfLines={1} style={{ color: '#FFFFFF', fontSize: 16 }}>{email}</Text></Animated.View>}
     </View>
+    </AuthAnchorContext.Provider>
   )
 }
 

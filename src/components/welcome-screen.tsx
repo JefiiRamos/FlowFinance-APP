@@ -6,8 +6,10 @@ import { AuthBackground, authVisuals } from './auth-visuals'
 import Svg, { Circle, Defs, Ellipse, LinearGradient as SvgGradient, Path, Rect, Stop } from 'react-native-svg'
 import { FinanceIcon, palette } from './finance-visuals'
 import { WelcomeKeyboardLayout } from './keyboard-layout'
+import { SharedEmailAnchor, useAuthAnchors } from './auth-flow-anchors'
 
-export function WelcomeScreen({ initialEmail = '', onContinue }: { initialEmail?: string; onContinue: (email: string) => Promise<void> }) {
+export function WelcomeScreen({ initialEmail = '', verifiedMode, onContinue }: { initialEmail?: string; verifiedMode?: 'login' | 'register'; onContinue: (email: string) => Promise<void> }) {
+  const anchors = useAuthAnchors()
   const [email, setEmail] = useState(initialEmail)
   const [emailError, setEmailError] = useState('')
   const [checking, setChecking] = useState(false)
@@ -31,6 +33,7 @@ export function WelcomeScreen({ initialEmail = '', onContinue }: { initialEmail?
       return
     }
     setEmailError('')
+    setEmail(normalizedEmail)
     Keyboard.dismiss()
     pending.current = true
     setChecking(true)
@@ -96,7 +99,7 @@ export function WelcomeScreen({ initialEmail = '', onContinue }: { initialEmail?
         <ScrollView ref={scrollRef} scrollEnabled={keyboardOpen} keyboardShouldPersistTaps="handled" keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'} automaticallyAdjustKeyboardInsets={false} bounces={false} showsVerticalScrollIndicator={false} contentContainerStyle={[styles.content, compact && styles.compactContent]}>
           <Animated.View testID="welcome-brand" onLayout={({ nativeEvent }) => setBrandCenter(nativeEvent.layout.y + nativeEvent.layout.height / 2)} style={[authVisuals.brand, {
             zIndex: 1,
-            opacity: brandOpacity,
+            opacity: anchors.active || anchors.moving ? 0 : brandOpacity,
             transform: [
               { translateY: brandPosition.interpolate({ inputRange: [0, 1], outputRange: [centerOffset, 0] }) },
               { scale: brandPosition.interpolate({ inputRange: [0, 1], outputRange: [1.18, 1] }) },
@@ -141,6 +144,7 @@ export function WelcomeScreen({ initialEmail = '', onContinue }: { initialEmail?
             <Text style={[authVisuals.subtitle, short && { fontSize: 13, lineHeight: 18 }]}>Organize seus gastos, alcance suas metas e conte com a IA no dia a dia.</Text>
             <View style={[styles.actions, compact && { marginTop: 0, gap: 8 }]}>
               <Text style={authVisuals.label}>Seu e-mail</Text>
+              <SharedEmailAnchor stage="welcome">
               <TextInput
                 accessibilityLabel="Seu e-mail"
                 placeholder="voce@email.com"
@@ -157,9 +161,11 @@ export function WelcomeScreen({ initialEmail = '', onContinue }: { initialEmail?
                 onSubmitEditing={continueWithEmail}
                 style={[authVisuals.input, emailError ? styles.emailInputError : undefined]}
               />
+              </SharedEmailAnchor>
+              <Text accessibilityLiveRegion="polite" style={styles.verificationStatus}>{verifiedMode ? (verifiedMode === 'login' ? 'Encontramos sua conta.' : 'Vamos criar sua conta.') : checking ? 'Verificando seu e-mail…' : ''}</Text>
               {emailError ? <Text accessibilityRole="alert" accessibilityLiveRegion="polite" style={styles.errorText}>{emailError}</Text> : null}
               <Pressable accessibilityRole="button" accessibilityState={{ disabled: !canInteract || checking, busy: checking }} disabled={!canInteract || checking} onPress={() => void continueWithEmail()} style={({ pressed }) => [authVisuals.primary, compact && styles.compactButton, checking && { opacity: 0.7 }, pressed && styles.pressed]}>
-                <Text style={authVisuals.primaryText}>{checking ? 'Verificando…' : 'Continuar'}</Text>
+                <Text style={authVisuals.primaryText}>{verifiedMode ? 'Tudo pronto' : checking ? 'Verificando…' : 'Continuar'}</Text>
               </Pressable>
             </View>
             <Text style={styles.footer}>Mais clareza para cada decisão financeira.</Text>
@@ -181,6 +187,7 @@ const styles = StyleSheet.create({
   bottom: { flexShrink: 0, marginTop: 'auto', gap: 16 },
   actions: { gap: 10, marginTop: 8 },
   emailInputError: { borderColor: '#FF9A9A' },
+  verificationStatus: { color: palette.muted, fontSize: 13, lineHeight: 18, minHeight: 18 },
   errorText: { color: '#FF9A9A', fontSize: 12, lineHeight: 18 },
   footer: { color: palette.muted, fontSize: 12, lineHeight: 18, textAlign: 'center', marginTop: 4 },
   pressed: { opacity: 0.8 },
