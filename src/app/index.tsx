@@ -18,6 +18,7 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { StatusBar } from 'expo-status-bar'
 import { FinanceBackground, FinanceIcon, palette, type IconName } from '@/components/finance-visuals'
+import { WelcomeScreen } from '@/components/welcome-screen'
 
 import {
   ApiError,
@@ -105,6 +106,7 @@ export default function FlowFinanceApp() {
   const [booting, setBooting] = useState(true)
   const [user, setUser] = useState<UserProfile | null>(null)
   const [authMode, setAuthMode] = useState<AuthMode>('login')
+  const [authVisible, setAuthVisible] = useState(false)
   const [section, setSection] = useState<Section>('inicio')
   const [transactions, setTransactions] = useState<Transaction[]>([])
   const [goalsList, setGoalsList] = useState<GoalItem[]>([])
@@ -178,6 +180,7 @@ export default function FlowFinanceApp() {
   async function handleLogout() {
     try { await logout() } catch { /* A sessão local já foi removida. */ }
     setUser(null)
+    setAuthVisible(false)
     setTransactions([])
     setGoalsList([])
     setLimits({})
@@ -192,7 +195,8 @@ export default function FlowFinanceApp() {
   if (booting) return <LoadingScreen />
 
   if (!user) {
-    return <AuthScreen mode={authMode} onModeChange={setAuthMode} onAuthenticated={handleAuthenticated} />
+    if (!authVisible) return <WelcomeScreen onStart={() => { setAuthMode('register'); setAuthVisible(true) }} onLogin={() => { setAuthMode('login'); setAuthVisible(true) }} />
+    return <AuthScreen mode={authMode} onModeChange={setAuthMode} onAuthenticated={handleAuthenticated} onBack={() => setAuthVisible(false)} />
   }
 
   if (!user.onboardingCompleted) {
@@ -290,10 +294,12 @@ function AuthScreen({
   mode,
   onModeChange,
   onAuthenticated,
+  onBack,
 }: {
   mode: AuthMode
   onModeChange: (mode: AuthMode) => void
   onAuthenticated: (user: UserProfile) => Promise<void>
+  onBack: () => void
 }) {
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
@@ -319,6 +325,7 @@ function AuthScreen({
       <SafeAreaView style={styles.safeArea}>
       <KeyboardAvoidingView style={styles.safeArea} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.authScreen}>
+      <Pressable accessibilityRole="button" accessibilityLabel="Voltar para boas-vindas" onPress={onBack} style={[styles.inline, { minHeight: 48, alignSelf: 'flex-start' }]}><FinanceIcon name="back" /><Text style={styles.linkText}>Voltar</Text></Pressable>
       <View style={styles.brandBlock}>
         <Text style={styles.brandMark}>FlowFinance</Text>
         <Text style={styles.brandTitle}>{mode === 'login' ? 'Entre na sua conta' : 'Crie sua conta'}</Text>

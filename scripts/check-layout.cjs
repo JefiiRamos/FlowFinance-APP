@@ -46,6 +46,25 @@ async function main() {
       await route.fulfill({ json: data })
     })
     await page.goto('http://127.0.0.1:8831')
+    await page.getByRole('button', { name: 'Começar agora', exact: true }).waitFor()
+    for (const [width, height] of [[320, 568], [360, 640], [390, 844], [430, 932], [844, 390]]) {
+      await page.setViewportSize({ width, height })
+      await page.screenshot({ path: path.join(output, 'welcome-' + width + '.png') })
+      assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth))
+      assert.ok(await page.evaluate(() => [...document.querySelectorAll('*')].every(node => {
+        const overflow = getComputedStyle(node).overflowY
+        return !['auto', 'scroll'].includes(overflow) || node.scrollHeight <= node.clientHeight + 1
+      })), 'Welcome must not have a scrollable container')
+      for (const name of ['Começar agora', 'Já tenho uma conta']) {
+        const box = await page.getByRole('button', { name, exact: true }).boundingBox()
+        assert.ok(box.y >= 0 && box.y + box.height <= height && box.height >= 48, 'Welcome buttons must fit: ' + width + 'x' + height)
+      }
+    }
+    await page.getByRole('button', { name: 'Começar agora', exact: true }).click()
+    await page.getByLabel('Nome', { exact: true }).waitFor()
+    await page.getByRole('button', { name: 'Voltar para boas-vindas' }).click()
+    await page.getByRole('button', { name: 'Já tenho uma conta', exact: true }).click()
+    await page.setViewportSize({ width: 390, height: 844 })
     await page.getByText('Entre na sua conta', { exact: true }).waitFor()
     await page.screenshot({ path: path.join(output, 'login.png') })
     await page.getByLabel('Email', { exact: true }).fill('preview@example.com')
