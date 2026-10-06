@@ -1,4 +1,5 @@
-import { Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native'
+import { useEffect, useState } from 'react'
+import { AccessibilityInfo, Animated, Easing, Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native'
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { StatusBar } from 'expo-status-bar'
 import { LinearGradient } from 'expo-linear-gradient'
@@ -11,18 +12,66 @@ export function WelcomeScreen({ onStart, onLogin }: { onStart: () => void; onLog
   const availableHeight = height - insets.top - insets.bottom
   const compact = availableHeight < 680
   const short = availableHeight < 520
+  const [brandOpacity] = useState(() => new Animated.Value(0))
+  const [brandPosition] = useState(() => new Animated.Value(0))
+  const [heroProgress] = useState(() => new Animated.Value(0))
+  const [bodyProgress] = useState(() => new Animated.Value(0))
+  const [brandCenter, setBrandCenter] = useState<number | null>(null)
+  const [reducedMotion, setReducedMotion] = useState<boolean | null>(null)
+  const [introFinished, setIntroFinished] = useState(false)
+  const canInteract = introFinished || reducedMotion === true
+  const layoutReady = brandCenter !== null
+  const centerOffset = height / 2 - insets.top - (brandCenter ?? 0)
+
+  useEffect(() => {
+    let active = true
+    AccessibilityInfo.isReduceMotionEnabled().then((enabled) => {
+      if (active) setReducedMotion(enabled)
+    }).catch(() => { if (active) setReducedMotion(false) })
+    const subscription = AccessibilityInfo.addEventListener('reduceMotionChanged', setReducedMotion)
+    return () => { active = false; subscription.remove() }
+  }, [])
+
+  useEffect(() => {
+    if (!layoutReady || reducedMotion === null) return
+    if (reducedMotion) {
+      brandOpacity.setValue(1)
+      brandPosition.setValue(1)
+      heroProgress.setValue(1)
+      bodyProgress.setValue(1)
+      return
+    }
+    const intro = Animated.sequence([
+      Animated.timing(brandOpacity, { toValue: 1, duration: 320, useNativeDriver: true }),
+      Animated.delay(240),
+      Animated.timing(brandPosition, { toValue: 1, duration: 850, easing: Easing.inOut(Easing.cubic), useNativeDriver: true }),
+      Animated.stagger(130, [
+        Animated.timing(heroProgress, { toValue: 1, duration: 500, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
+        Animated.timing(bodyProgress, { toValue: 1, duration: 500, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
+      ]),
+    ])
+    intro.start(({ finished }) => { if (finished) setIntroFinished(true) })
+    return () => intro.stop()
+  }, [layoutReady, reducedMotion, brandOpacity, brandPosition, heroProgress, bodyProgress])
   return (
     <View style={styles.screen}>
       <StatusBar style="light" />
       <LinearGradient pointerEvents="none" colors={['#23264F', '#15182C', '#090B10', '#090B10']} locations={[0, 0.32, 0.62, 1]} style={StyleSheet.absoluteFill} />
       <SafeAreaView style={styles.safeArea}>
         <View style={[styles.content, compact && styles.compactContent]}>
-          <View style={styles.brand}>
+          <Animated.View testID="welcome-brand" onLayout={({ nativeEvent }) => setBrandCenter(nativeEvent.layout.y + nativeEvent.layout.height / 2)} style={[styles.brand, {
+            zIndex: 1,
+            opacity: brandOpacity,
+            transform: [
+              { translateY: brandPosition.interpolate({ inputRange: [0, 1], outputRange: [centerOffset, 0] }) },
+              { scale: brandPosition.interpolate({ inputRange: [0, 1], outputRange: [1.18, 1] }) },
+            ],
+          }]}>
             <FinanceIcon name="sparkles" size={25} color="#FFFFFF" />
             <Text style={styles.brandName}>FlowFinance</Text>
-          </View>
+          </Animated.View>
 
-          <View style={[styles.hero, compact && { marginVertical: 8 }]} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+          <Animated.View style={[styles.hero, compact && { marginVertical: 8 }, { opacity: heroProgress, transform: [{ scale: heroProgress.interpolate({ inputRange: [0, 1], outputRange: [0.96, 1] }) }] }]} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
             <Svg width="100%" height="100%" viewBox="0 0 340 310">
               <Defs>
                 <SvgGradient id="wallet" x1="0" y1="0" x2="1" y2="1">
@@ -50,21 +99,21 @@ export function WelcomeScreen({ onStart, onLogin }: { onStart: () => void; onLog
               <Path d="m56 116 3 8 8 3-8 3-3 8-3-8-8-3 8-3Z" fill="#909AFF" />
               <Circle cx="282" cy="240" r="4" fill="#8893FF" opacity="0.5" />
             </Svg>
-          </View>
+          </Animated.View>
 
-          <View style={[styles.bottom, compact && { gap: short ? 8 : 12 }]}>
+          <Animated.View testID="welcome-body" pointerEvents={canInteract ? 'auto' : 'none'} accessibilityElementsHidden={!canInteract} importantForAccessibility={canInteract ? 'auto' : 'no-hide-descendants'} style={[styles.bottom, compact && { gap: short ? 8 : 12 }, { opacity: bodyProgress }]}>
             <Text accessibilityRole="header" style={[styles.title, compact && { fontSize: short ? 22 : 25, lineHeight: short ? 28 : 31 }]}>Seu dinheiro em ordem.{ '\n' }Sua vida mais leve.</Text>
             <Text style={[styles.subtitle, short && { fontSize: 13, lineHeight: 18 }]}>Organize seus gastos, alcance suas metas e conte com a IA no dia a dia.</Text>
             <View style={[styles.actions, compact && { marginTop: 0, gap: 8 }]}>
-              <Pressable accessibilityRole="button" onPress={onStart} style={({ pressed }) => [styles.primary, compact && styles.compactButton, pressed && styles.pressed]}>
+              <Pressable accessibilityRole="button" disabled={!canInteract} onPress={onStart} style={({ pressed }) => [styles.primary, compact && styles.compactButton, pressed && styles.pressed]}>
                 <Text style={styles.primaryText}>Começar agora</Text>
               </Pressable>
-              <Pressable accessibilityRole="button" onPress={onLogin} style={({ pressed }) => [styles.secondary, compact && styles.compactButton, pressed && styles.pressed]}>
+              <Pressable accessibilityRole="button" disabled={!canInteract} onPress={onLogin} style={({ pressed }) => [styles.secondary, compact && styles.compactButton, pressed && styles.pressed]}>
                 <Text style={styles.secondaryText}>Já tenho uma conta</Text>
               </Pressable>
             </View>
             <Text style={styles.footer}>Mais clareza para cada decisão financeira.</Text>
-          </View>
+          </Animated.View>
         </View>
       </SafeAreaView>
     </View>

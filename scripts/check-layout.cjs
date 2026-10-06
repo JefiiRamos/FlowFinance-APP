@@ -46,6 +46,10 @@ async function main() {
       await route.fulfill({ json: data })
     })
     await page.goto('http://127.0.0.1:8831')
+    await page.waitForFunction(() => {
+      const body = document.querySelector('[data-testid="welcome-body"]')
+      return body && Number(getComputedStyle(body).opacity) === 1
+    })
     await page.getByRole('button', { name: 'Começar agora', exact: true }).waitFor()
     for (const [width, height] of [[320, 568], [360, 640], [390, 844], [430, 932], [844, 390]]) {
       await page.setViewportSize({ width, height })
