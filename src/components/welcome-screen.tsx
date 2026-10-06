@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { AccessibilityInfo, Animated, Dimensions, Easing, Keyboard, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native'
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { StatusBar } from 'expo-status-bar'
-import { LinearGradient } from 'expo-linear-gradient'
+import { AuthBackground, authVisuals } from './auth-visuals'
 import Svg, { Circle, Defs, Ellipse, LinearGradient as SvgGradient, Path, Rect, Stop } from 'react-native-svg'
 import { FinanceIcon, palette } from './finance-visuals'
 import { WelcomeKeyboardLayout } from './keyboard-layout'
@@ -90,11 +90,11 @@ export function WelcomeScreen({ initialEmail = '', onContinue }: { initialEmail?
   return (
     <View style={styles.screen}>
       <StatusBar style="light" />
-      <LinearGradient pointerEvents="none" colors={['#23264F', '#15182C', '#090B10', '#090B10']} locations={[0, 0.32, 0.62, 1]} style={StyleSheet.absoluteFill} />
+      <AuthBackground />
       <SafeAreaView style={styles.safeArea}>
         <WelcomeKeyboardLayout>
         <ScrollView ref={scrollRef} scrollEnabled={keyboardOpen} keyboardShouldPersistTaps="handled" keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'} automaticallyAdjustKeyboardInsets={false} bounces={false} showsVerticalScrollIndicator={false} contentContainerStyle={[styles.content, compact && styles.compactContent]}>
-          <Animated.View testID="welcome-brand" onLayout={({ nativeEvent }) => setBrandCenter(nativeEvent.layout.y + nativeEvent.layout.height / 2)} style={[styles.brand, {
+          <Animated.View testID="welcome-brand" onLayout={({ nativeEvent }) => setBrandCenter(nativeEvent.layout.y + nativeEvent.layout.height / 2)} style={[authVisuals.brand, {
             zIndex: 1,
             opacity: brandOpacity,
             transform: [
@@ -103,7 +103,7 @@ export function WelcomeScreen({ initialEmail = '', onContinue }: { initialEmail?
             ],
           }]}>
             <FinanceIcon name="sparkles" size={25} color="#FFFFFF" />
-            <Text style={styles.brandName}>FlowFinance</Text>
+            <Text style={authVisuals.brandName}>FlowFinance</Text>
           </Animated.View>
 
           <Animated.View style={[styles.hero, compact && { marginVertical: 8 }, { opacity: heroProgress, transform: [{ scale: heroProgress.interpolate({ inputRange: [0, 1], outputRange: [0.96, 1] }) }] }]} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
@@ -137,10 +137,10 @@ export function WelcomeScreen({ initialEmail = '', onContinue }: { initialEmail?
           </Animated.View>
 
           <Animated.View testID="welcome-body" pointerEvents={canInteract ? 'auto' : 'none'} accessibilityElementsHidden={!canInteract} importantForAccessibility={canInteract ? 'auto' : 'no-hide-descendants'} style={[styles.bottom, compact && { gap: short ? 8 : 12 }, { opacity: bodyProgress }]}>
-            <Text accessibilityRole="header" style={[styles.title, compact && { fontSize: short ? 22 : 25, lineHeight: short ? 28 : 31 }]}>Seu dinheiro em ordem.{ '\n' }Sua vida mais leve.</Text>
-            <Text style={[styles.subtitle, short && { fontSize: 13, lineHeight: 18 }]}>Organize seus gastos, alcance suas metas e conte com a IA no dia a dia.</Text>
+            <Text accessibilityRole="header" style={[authVisuals.title, compact && { fontSize: short ? 22 : 25, lineHeight: short ? 28 : 31 }]}>Seu dinheiro em ordem.{ '\n' }Sua vida mais leve.</Text>
+            <Text style={[authVisuals.subtitle, short && { fontSize: 13, lineHeight: 18 }]}>Organize seus gastos, alcance suas metas e conte com a IA no dia a dia.</Text>
             <View style={[styles.actions, compact && { marginTop: 0, gap: 8 }]}>
-              <Text style={styles.emailLabel}>Seu e-mail</Text>
+              <Text style={authVisuals.label}>Seu e-mail</Text>
               <TextInput
                 accessibilityLabel="Seu e-mail"
                 placeholder="voce@email.com"
@@ -155,11 +155,11 @@ export function WelcomeScreen({ initialEmail = '', onContinue }: { initialEmail?
                 textContentType="emailAddress"
                 returnKeyType="go"
                 onSubmitEditing={continueWithEmail}
-                style={[styles.emailInput, emailError ? styles.emailInputError : undefined]}
+                style={[authVisuals.input, emailError ? styles.emailInputError : undefined]}
               />
               {emailError ? <Text accessibilityRole="alert" accessibilityLiveRegion="polite" style={styles.errorText}>{emailError}</Text> : null}
-              <Pressable accessibilityRole="button" accessibilityState={{ disabled: !canInteract || checking, busy: checking }} disabled={!canInteract || checking} onPress={() => void continueWithEmail()} style={({ pressed }) => [styles.primary, compact && styles.compactButton, checking && { opacity: 0.7 }, pressed && styles.pressed]}>
-                <Text style={styles.primaryText}>{checking ? 'Verificando…' : 'Continuar'}</Text>
+              <Pressable accessibilityRole="button" accessibilityState={{ disabled: !canInteract || checking, busy: checking }} disabled={!canInteract || checking} onPress={() => void continueWithEmail()} style={({ pressed }) => [authVisuals.primary, compact && styles.compactButton, checking && { opacity: 0.7 }, pressed && styles.pressed]}>
+                <Text style={authVisuals.primaryText}>{checking ? 'Verificando…' : 'Continuar'}</Text>
               </Pressable>
             </View>
             <Text style={styles.footer}>Mais clareza para cada decisão financeira.</Text>
@@ -177,19 +177,11 @@ const styles = StyleSheet.create({
   content: { flexGrow: 1, flexShrink: 1, flexBasis: 0, paddingHorizontal: 24, paddingTop: 24, paddingBottom: 24, width: '100%', maxWidth: 480, alignSelf: 'center' },
   compactContent: { paddingHorizontal: 20, paddingVertical: 12 },
   compactButton: { minHeight: 48, paddingVertical: 12 },
-  brand: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 9 },
-  brandName: { color: '#FFFFFF', fontSize: 20, fontWeight: '500', letterSpacing: -0.6 },
   hero: { flex: 1, minHeight: 0, maxHeight: 430, marginVertical: 16 },
   bottom: { flexShrink: 0, marginTop: 'auto', gap: 16 },
-  title: { color: '#FFFFFF', fontSize: 28, fontWeight: '500', letterSpacing: -0.8, lineHeight: 35, textAlign: 'center' },
-  subtitle: { color: palette.muted, fontSize: 14, lineHeight: 21, textAlign: 'center', paddingHorizontal: 8 },
   actions: { gap: 10, marginTop: 8 },
-  primary: { minHeight: 54, borderRadius: 28, backgroundColor: palette.primary, alignItems: 'center', justifyContent: 'center', padding: 14 },
-  emailLabel: { color: '#E3E6EF', fontSize: 13, fontWeight: '500' },
-  emailInput: { minHeight: 54, borderRadius: 16, borderWidth: 1, borderColor: 'rgba(255,255,255,0.14)', backgroundColor: '#141924', color: '#FFFFFF', fontSize: 16, paddingHorizontal: 16, paddingVertical: 14 },
   emailInputError: { borderColor: '#FF9A9A' },
   errorText: { color: '#FF9A9A', fontSize: 12, lineHeight: 18 },
-  primaryText: { color: '#FFFFFF', fontSize: 15, fontWeight: '500' },
   footer: { color: palette.muted, fontSize: 12, lineHeight: 18, textAlign: 'center', marginTop: 4 },
   pressed: { opacity: 0.8 },
 })

@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ActivityIndicator,
   Alert,
+  Animated,
+  Dimensions,
   KeyboardAvoidingView,
   Keyboard,
   Modal,
@@ -19,6 +21,10 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { StatusBar } from 'expo-status-bar'
 import { FinanceBackground, FinanceIcon, palette, type IconName } from '@/components/finance-visuals'
 import { WelcomeScreen } from '@/components/welcome-screen'
+import { AuthFlowTransition } from '@/components/auth-flow-transition'
+import { AuthBackground, authVisuals } from '@/components/auth-visuals'
+import { useAuthModeMotion } from '@/components/use-auth-mode-motion'
+import { WelcomeKeyboardLayout } from '@/components/keyboard-layout'
 
 import {
   ApiError,
@@ -198,13 +204,18 @@ export default function FlowFinanceApp() {
   if (booting) return <LoadingScreen />
 
   if (!user) {
-    if (!authVisible) return <WelcomeScreen initialEmail={authEmail} onContinue={async (email) => {
-      const exists = await checkEmail(email)
-      setAuthEmail(email)
-      setAuthMode(exists ? 'login' : 'register')
-      setAuthVisible(true)
-    }} />
-    return <AuthScreen initialEmail={authEmail} mode={authMode} onModeChange={setAuthMode} onAuthenticated={handleAuthenticated} onBack={() => setAuthVisible(false)} />
+    return (
+      <AuthFlowTransition
+        active={authVisible}
+        welcome={<WelcomeScreen initialEmail={authEmail} onContinue={async (email) => {
+          const exists = await checkEmail(email)
+          setAuthEmail(email)
+          setAuthMode(exists ? 'login' : 'register')
+          setAuthVisible(true)
+        }} />}
+        auth={authEmail ? <AuthScreen key={authEmail} initialEmail={authEmail} mode={authMode} onModeChange={setAuthMode} onAuthenticated={handleAuthenticated} onBack={() => { Keyboard.dismiss(); setAuthVisible(false) }} /> : null}
+      />
+    )
   }
 
   if (!user.onboardingCompleted) {
@@ -311,12 +322,28 @@ function AuthScreen({
   onAuthenticated: (user: UserProfile) => Promise<void>
   onBack: () => void
 }) {
+  const modeProgress = useAuthModeMotion(mode)
   const [name, setName] = useState('')
   const email = initialEmail
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
+  const scrollRef = useRef<ScrollView>(null)
+  const [keyboardOpen, setKeyboardOpen] = useState(() => Keyboard.isVisible())
+  const { height } = useWindowDimensions()
+  const layoutHeight = Platform.OS === 'android' ? Dimensions.get('screen').height : height
+  const compact = layoutHeight < 680
+
+  useEffect(() => {
+    const show = Keyboard.addListener(Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow', () => setKeyboardOpen(true))
+    const hide = Keyboard.addListener('keyboardDidHide', () => {
+      setKeyboardOpen(false)
+      scrollRef.current?.scrollTo({ y: 0, animated: true })
+    })
+    return () => { show.remove(); hide.remove() }
+  }, [])
 
   async function submit() {
+    if (loading) return
     setLoading(true)
     try {
       const profile = mode === 'login' ? await login(email, password) : await register(name, email, password)
@@ -330,38 +357,52 @@ function AuthScreen({
 
   return (
     <View style={styles.app}>
-      <FinanceBackground />
+      <AuthBackground variant={mode} progress={modeProgress} />
       <StatusBar style="light" />
       <SafeAreaView style={styles.safeArea}>
-      <KeyboardAvoidingView style={styles.safeArea} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-      <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.authScreen}>
+      <WelcomeKeyboardLayout>
+      <ScrollView ref={scrollRef} scrollEnabled={keyboardOpen} bounces={false} showsVerticalScrollIndicator={false} keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'} keyboardShouldPersistTaps="handled" contentContainerStyle={[styles.authScreen, compact && styles.authCompact]}>
       <Pressable accessibilityRole="button" accessibilityLabel="Voltar para boas-vindas" onPress={onBack} style={[styles.inline, { minHeight: 48, alignSelf: 'flex-start' }]}><FinanceIcon name="back" /><Text style={styles.linkText}>Voltar</Text></Pressable>
       <View style={styles.brandBlock}>
-        <Text style={styles.brandMark}>FlowFinance</Text>
-        <Text style={styles.brandTitle}>{mode === 'login' ? 'Entre na sua conta' : 'Crie sua conta'}</Text>
-        <Text style={styles.brandSubtitle}>{mode === 'login' ? 'Seu painel financeiro, sempre com você.' : 'Organize receitas, gastos e metas.'}</Text>
+        <View style={authVisuals.brand}><FinanceIcon name="sparkles" size={25} color="#FFFFFF" /><Text style={authVisuals.brandName}>FlowFinance</Text></View>
+        <View style={{ width: '100%', height: compact ? 31 : 35 }}>
+          <Animated.Text accessibilityElementsHidden={mode !== 'login'} importantForAccessibility={mode === 'login' ? 'auto' : 'no-hide-descendants'} style={[authVisuals.title, compact && { fontSize: 25, lineHeight: 31 }, { position: 'absolute', width: '100%', opacity: modeProgress.interpolate({ inputRange: [0, 1], outputRange: [1, 0] }) }]}>Entre na sua conta</Animated.Text>
+          <Animated.Text accessibilityElementsHidden={mode !== 'register'} importantForAccessibility={mode === 'register' ? 'auto' : 'no-hide-descendants'} style={[authVisuals.title, compact && { fontSize: 25, lineHeight: 31 }, { position: 'absolute', width: '100%', opacity: modeProgress }]}>Crie sua conta</Animated.Text>
+        </View>
+        <View style={{ width: '100%', height: 42 }}>
+          <Animated.Text accessibilityElementsHidden={mode !== 'login'} importantForAccessibility={mode === 'login' ? 'auto' : 'no-hide-descendants'} style={[authVisuals.subtitle, { position: 'absolute', width: '100%', opacity: modeProgress.interpolate({ inputRange: [0, 1], outputRange: [1, 0] }) }]}>Seu painel financeiro, sempre com você.</Animated.Text>
+          <Animated.Text accessibilityElementsHidden={mode !== 'register'} importantForAccessibility={mode === 'register' ? 'auto' : 'no-hide-descendants'} style={[authVisuals.subtitle, { position: 'absolute', width: '100%', opacity: modeProgress }]}>Organize receitas, gastos e metas.</Animated.Text>
+        </View>
       </View>
-      <View style={styles.panel}>
+      <View style={styles.authForm}>
         <Segmented
           value={mode}
           options={[
             { id: 'login', label: 'Entrar' },
             { id: 'register', label: 'Cadastrar' },
           ]}
-          onChange={(value) => onModeChange(value as AuthMode)}
+          onChange={(value) => { if (!loading) { Keyboard.dismiss(); onModeChange(value as AuthMode) } }}
         />
-        {mode === 'register' && <Field label="Nome" value={name} onChangeText={setName} placeholder="Seu nome" />}
+        <View style={{ gap: 0 }}>
+        <Animated.View testID="auth-name-reveal" pointerEvents={mode === 'register' ? 'auto' : 'none'} accessibilityElementsHidden={mode !== 'register'} importantForAccessibility={mode === 'register' ? 'auto' : 'no-hide-descendants'} style={{ height: modeProgress.interpolate({ inputRange: [0, 1], outputRange: [0, 92] }), overflow: 'hidden', opacity: modeProgress }}>
+          <Field authStyle label="Nome" value={name} onChangeText={setName} placeholder="Seu nome" editable={mode === 'register' && !loading} />
+        </Animated.View>
+        <View style={{ gap: 14 }}>
         <View style={{ gap: 8 }}>
-          <Text style={styles.label}>E-mail</Text>
+          <Text style={authVisuals.label}>E-mail</Text>
           <Text style={styles.muted}>{email}</Text>
           <Pressable accessibilityRole="button" onPress={onBack} style={{ minHeight: 44, justifyContent: 'center' }}><Text style={styles.linkText}>Alterar e-mail</Text></Pressable>
         </View>
-        <Field label="Senha" value={password} onChangeText={setPassword} placeholder="Minimo 6 caracteres" secureTextEntry />
-        <PrimaryButton label={loading ? 'Aguarde...' : mode === 'login' ? 'Entrar' : 'Criar conta'} onPress={submit} disabled={loading} />
+        <Field authStyle label="Senha" value={password} onChangeText={setPassword} placeholder="Sua senha" secureTextEntry returnKeyType="go" onSubmitEditing={() => void submit()} editable={!loading} />
+        <Pressable accessibilityRole="button" accessibilityState={{ disabled: loading, busy: loading }} disabled={loading} onPress={() => void submit()} style={({ pressed }) => [authVisuals.primary, (pressed || loading) && { opacity: 0.7 }]}>
+          <Text style={authVisuals.primaryText}>{loading ? 'Aguarde...' : mode === 'login' ? 'Entrar' : 'Criar conta'}</Text>
+        </Pressable>
         <Text style={styles.helper}>Use a mesma conta do seu painel web.</Text>
+        </View>
+        </View>
       </View>
       </ScrollView>
-      </KeyboardAvoidingView>
+      </WelcomeKeyboardLayout>
       </SafeAreaView>
     </View>
   )
@@ -1027,13 +1068,13 @@ function MetricCard({ title, value, tone }: { title: string; value: string; tone
   )
 }
 
-function Field(props: React.ComponentProps<typeof TextInput> & { label: string }) {
-  const { label, ...inputProps } = props
+function Field(props: React.ComponentProps<typeof TextInput> & { label: string; authStyle?: boolean }) {
+  const { label, authStyle, ...inputProps } = props
   const [passwordVisible, setPasswordVisible] = useState(false)
   const icon: IconName | null = inputProps.secureTextEntry ? 'lock' : inputProps.keyboardType === 'email-address' ? 'mail' : label === 'Nome' ? 'user' : null
   return (
     <View style={styles.field}>
-      <Text style={styles.label}>{label}</Text>
+      <Text style={authStyle ? authVisuals.label : styles.label}>{label}</Text>
       <View style={styles.fieldInputRow}>
       {icon && <View style={styles.fieldIcon}><FinanceIcon name={icon} size={19} /></View>}
       <TextInput
@@ -1041,7 +1082,7 @@ function Field(props: React.ComponentProps<typeof TextInput> & { label: string }
         accessibilityLabel={label}
         secureTextEntry={inputProps.secureTextEntry && !passwordVisible}
         placeholderTextColor={palette.muted}
-        style={[styles.input, { flex: 1 }, icon && { paddingLeft: 44 }, inputProps.secureTextEntry && { paddingRight: 46 }, inputProps.style]}
+        style={[authStyle ? authVisuals.input : styles.input, { flex: 1 }, icon && { paddingLeft: 44 }, inputProps.secureTextEntry && { paddingRight: 46 }, inputProps.style]}
         autoCapitalize={inputProps.secureTextEntry || inputProps.keyboardType === 'email-address' ? 'none' : undefined}
         autoCorrect={inputProps.secureTextEntry ? false : undefined}
       />
@@ -1143,7 +1184,9 @@ const styles = StyleSheet.create({
   app: { flex: 1, backgroundColor: '#090B10' },
   safeArea: { flex: 1 },
   centerScreen: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12, backgroundColor: '#090B10' },
-  authScreen: { flexGrow: 1, justifyContent: 'center', gap: 20, padding: 20, paddingVertical: 24, maxWidth: 480, width: '100%', alignSelf: 'center' },
+  authScreen: { flexGrow: 1, flexShrink: 1, flexBasis: 0, justifyContent: 'center', gap: 20, paddingHorizontal: 24, paddingVertical: 24, maxWidth: 480, width: '100%', alignSelf: 'center' },
+  authCompact: { gap: 12, paddingHorizontal: 20, paddingVertical: 12 },
+  authForm: { gap: 14 },
   brandBlock: { gap: 18, alignItems: 'center', paddingBottom: 8 },
   brandMark: { color: '#6E7CFF', fontSize: 22, fontWeight: '500', letterSpacing: -1 },
   brandTitle: { color: '#FFFFFF', fontSize: 26, lineHeight: 32, fontWeight: '300', letterSpacing: -1.4, textAlign: 'center' },
