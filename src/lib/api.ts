@@ -81,6 +81,12 @@ async function request<T>(path: string, method = 'GET', body?: unknown, authenti
   } finally { clearTimeout(timeout) }
 }
 
+export async function checkEmail(email: string): Promise<boolean> {
+  const result = await request<{ exists: boolean }>('/auth/check-email', 'POST', { email: email.trim().toLowerCase() }, false)
+  if (typeof result?.exists !== 'boolean') throw new ApiError('Não foi possível verificar seu e-mail. Tente novamente.', 502, '/auth/check-email')
+  return result.exists
+}
+
 export async function login(email: string, password: string) {
   const result = await request<{ token: string; user: UserProfile }>('/auth/login', 'POST', { email: email.trim().toLowerCase(), password }, false)
   if (!result.token || !result.user) throw new ApiError('Resposta de autenticação inválida.', 502)

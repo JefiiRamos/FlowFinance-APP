@@ -24,6 +24,7 @@ import {
   ApiError,
   askAssistant,
   clearAuthToken,
+  checkEmail,
   createGoal,
   createRecurringExpense,
   createTransaction,
@@ -107,6 +108,7 @@ export default function FlowFinanceApp() {
   const [user, setUser] = useState<UserProfile | null>(null)
   const [authMode, setAuthMode] = useState<AuthMode>('login')
   const [authVisible, setAuthVisible] = useState(false)
+  const [authEmail, setAuthEmail] = useState('')
   const [section, setSection] = useState<Section>('inicio')
   const [transactions, setTransactions] = useState<Transaction[]>([])
   const [goalsList, setGoalsList] = useState<GoalItem[]>([])
@@ -181,6 +183,7 @@ export default function FlowFinanceApp() {
     try { await logout() } catch { /* A sessão local já foi removida. */ }
     setUser(null)
     setAuthVisible(false)
+    setAuthEmail('')
     setTransactions([])
     setGoalsList([])
     setLimits({})
@@ -195,8 +198,13 @@ export default function FlowFinanceApp() {
   if (booting) return <LoadingScreen />
 
   if (!user) {
-    if (!authVisible) return <WelcomeScreen onStart={() => { setAuthMode('register'); setAuthVisible(true) }} onLogin={() => { setAuthMode('login'); setAuthVisible(true) }} />
-    return <AuthScreen mode={authMode} onModeChange={setAuthMode} onAuthenticated={handleAuthenticated} onBack={() => setAuthVisible(false)} />
+    if (!authVisible) return <WelcomeScreen initialEmail={authEmail} onContinue={async (email) => {
+      const exists = await checkEmail(email)
+      setAuthEmail(email)
+      setAuthMode(exists ? 'login' : 'register')
+      setAuthVisible(true)
+    }} />
+    return <AuthScreen initialEmail={authEmail} mode={authMode} onModeChange={setAuthMode} onAuthenticated={handleAuthenticated} onBack={() => setAuthVisible(false)} />
   }
 
   if (!user.onboardingCompleted) {
@@ -291,18 +299,20 @@ function LoadingScreen() {
 }
 
 function AuthScreen({
+  initialEmail,
   mode,
   onModeChange,
   onAuthenticated,
   onBack,
 }: {
+  initialEmail: string
   mode: AuthMode
   onModeChange: (mode: AuthMode) => void
   onAuthenticated: (user: UserProfile) => Promise<void>
   onBack: () => void
 }) {
   const [name, setName] = useState('')
-  const [email, setEmail] = useState('')
+  const email = initialEmail
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
 
@@ -341,7 +351,11 @@ function AuthScreen({
           onChange={(value) => onModeChange(value as AuthMode)}
         />
         {mode === 'register' && <Field label="Nome" value={name} onChangeText={setName} placeholder="Seu nome" />}
-        <Field label="Email" value={email} onChangeText={setEmail} placeholder="voce@email.com" keyboardType="email-address" />
+        <View style={{ gap: 8 }}>
+          <Text style={styles.label}>E-mail</Text>
+          <Text style={styles.muted}>{email}</Text>
+          <Pressable accessibilityRole="button" onPress={onBack} style={{ minHeight: 44, justifyContent: 'center' }}><Text style={styles.linkText}>Alterar e-mail</Text></Pressable>
+        </View>
         <Field label="Senha" value={password} onChangeText={setPassword} placeholder="Minimo 6 caracteres" secureTextEntry />
         <PrimaryButton label={loading ? 'Aguarde...' : mode === 'login' ? 'Entrar' : 'Criar conta'} onPress={submit} disabled={loading} />
         <Text style={styles.helper}>Use a mesma conta do seu painel web.</Text>

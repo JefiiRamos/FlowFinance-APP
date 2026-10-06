@@ -29,15 +29,21 @@ async function main() {
     const page = await browser.newPage({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 1 })
     const errors = []
     let recurringUnavailable = false
+    let emailCheckUnavailable = false
     page.on('pageerror', error => errors.push(error.message))
     await page.route('**/api/**', async route => {
       const pathname = new URL(route.request().url()).pathname
+      if (pathname.endsWith('/auth/check-email') && emailCheckUnavailable) {
+        await route.fulfill({ status: 503, json: { error: 'Verificação temporariamente indisponível' } })
+        return
+      }
       if (pathname.endsWith('/recurring') && recurringUnavailable) {
         await route.fulfill({ status: 405, body: '' })
         return
       }
       let data = []
-      if (pathname.endsWith('/auth/login')) data = { token: 'preview-token', user }
+      if (pathname.endsWith('/auth/check-email')) data = { exists: route.request().postDataJSON().email === 'preview@example.com' }
+      else if (pathname.endsWith('/auth/login')) data = { token: 'preview-token', user }
       else if (pathname.endsWith('/auth/me')) data = user
       else if (pathname.endsWith('/transactions')) data = transactions
       else if (pathname.endsWith('/budget-limits')) data = {}
@@ -50,7 +56,7 @@ async function main() {
       const body = document.querySelector('[data-testid="welcome-body"]')
       return body && Number(getComputedStyle(body).opacity) === 1
     })
-    await page.getByRole('button', { name: 'Começar agora', exact: true }).waitFor()
+    await page.getByRole('button', { name: 'Continuar', exact: true }).waitFor()
     for (const [width, height] of [[320, 568], [360, 640], [390, 844], [430, 932], [844, 390]]) {
       await page.setViewportSize({ width, height })
       await page.screenshot({ path: path.join(output, 'welcome-' + width + '.png') })
@@ -59,19 +65,29 @@ async function main() {
         const overflow = getComputedStyle(node).overflowY
         return !['auto', 'scroll'].includes(overflow) || node.scrollHeight <= node.clientHeight + 1
       })), 'Welcome must not have a scrollable container')
-      for (const name of ['Começar agora', 'Já tenho uma conta']) {
+      for (const name of ['Continuar']) {
         const box = await page.getByRole('button', { name, exact: true }).boundingBox()
         assert.ok(box.y >= 0 && box.y + box.height <= height && box.height >= 48, 'Welcome buttons must fit: ' + width + 'x' + height)
       }
     }
-    await page.getByRole('button', { name: 'Começar agora', exact: true }).click()
+    await page.setViewportSize({ width: 390, height: 844 })
+    await page.getByLabel('Seu e-mail', { exact: true }).fill('invalid')
+    await page.getByRole('button', { name: 'Continuar', exact: true }).click()
+    await page.getByText('Digite um e-mail válido para continuar.').waitFor()
+    await page.getByLabel('Seu e-mail', { exact: true }).fill('new@example.com')
+    emailCheckUnavailable = true
+    await page.getByRole('button', { name: 'Continuar', exact: true }).click()
+    await page.getByText('Verificação temporariamente indisponível', { exact: false }).waitFor()
+    assert.equal(await page.getByLabel('Seu e-mail', { exact: true }).inputValue(), 'new@example.com')
+    emailCheckUnavailable = false
+    await page.getByRole('button', { name: 'Continuar', exact: true }).click()
     await page.getByLabel('Nome', { exact: true }).waitFor()
     await page.getByRole('button', { name: 'Voltar para boas-vindas' }).click()
-    await page.getByRole('button', { name: 'Já tenho uma conta', exact: true }).click()
+    await page.getByLabel('Seu e-mail', { exact: true }).fill(' Preview@Example.com ')
+    await page.getByRole('button', { name: 'Continuar', exact: true }).click()
     await page.setViewportSize({ width: 390, height: 844 })
     await page.getByText('Entre na sua conta', { exact: true }).waitFor()
     await page.screenshot({ path: path.join(output, 'login.png') })
-    await page.getByLabel('Email', { exact: true }).fill('preview@example.com')
     await page.getByLabel('Senha', { exact: true }).fill('preview-only')
     await page.getByText('Entrar', { exact: true }).last().click()
     await page.getByText('Seu saldo disponível', { exact: true }).waitFor()

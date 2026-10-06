@@ -1,15 +1,48 @@
-import { useEffect, useState } from 'react'
-import { AccessibilityInfo, Animated, Easing, Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native'
+import { useEffect, useRef, useState } from 'react'
+import { AccessibilityInfo, Animated, Dimensions, Easing, Keyboard, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native'
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { StatusBar } from 'expo-status-bar'
 import { LinearGradient } from 'expo-linear-gradient'
 import Svg, { Circle, Defs, Ellipse, LinearGradient as SvgGradient, Path, Rect, Stop } from 'react-native-svg'
 import { FinanceIcon, palette } from './finance-visuals'
 
-export function WelcomeScreen({ onStart, onLogin }: { onStart: () => void; onLogin: () => void }) {
+export function WelcomeScreen({ initialEmail = '', onContinue }: { initialEmail?: string; onContinue: (email: string) => Promise<void> }) {
+  const [email, setEmail] = useState(initialEmail)
+  const [emailError, setEmailError] = useState('')
+  const [checking, setChecking] = useState(false)
+  const pending = useRef(false)
+  const scrollRef = useRef<ScrollView>(null)
+  const [keyboardOpen, setKeyboardOpen] = useState(() => Keyboard.isVisible())
+
+  useEffect(() => {
+    const show = Keyboard.addListener(Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow', () => setKeyboardOpen(true))
+    const hide = Keyboard.addListener(Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide', () => {
+      setKeyboardOpen(false)
+      scrollRef.current?.scrollTo({ y: 0, animated: true })
+    })
+    return () => { show.remove(); hide.remove() }
+  }, [])
+  async function continueWithEmail() {
+    if (!canInteract || pending.current) return
+    const normalizedEmail = email.trim().toLowerCase()
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
+      setEmailError('Digite um e-mail válido para continuar.')
+      return
+    }
+    setEmailError('')
+    Keyboard.dismiss()
+    pending.current = true
+    setChecking(true)
+    try { await onContinue(normalizedEmail) } catch (error) {
+      setEmailError(error instanceof Error ? error.message : 'Não foi possível verificar seu e-mail. Tente novamente.')
+    } finally { pending.current = false; setChecking(false) }
+  }
   const { height } = useWindowDimensions()
   const insets = useSafeAreaInsets()
-  const availableHeight = height - insets.top - insets.bottom
+  // Android resizes the window for the keyboard; keep typography and spacing
+  // based on the full screen so crossing a breakpoint does not cause a jump.
+  const layoutHeight = Platform.OS === 'android' ? Dimensions.get('screen').height : height
+  const availableHeight = layoutHeight - insets.top - insets.bottom
   const compact = availableHeight < 680
   const short = availableHeight < 520
   const [brandOpacity] = useState(() => new Animated.Value(0))
@@ -58,7 +91,8 @@ export function WelcomeScreen({ onStart, onLogin }: { onStart: () => void; onLog
       <StatusBar style="light" />
       <LinearGradient pointerEvents="none" colors={['#23264F', '#15182C', '#090B10', '#090B10']} locations={[0, 0.32, 0.62, 1]} style={StyleSheet.absoluteFill} />
       <SafeAreaView style={styles.safeArea}>
-        <View style={[styles.content, compact && styles.compactContent]}>
+        <KeyboardAvoidingView style={styles.safeArea} enabled={Platform.OS === 'ios'} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+        <ScrollView ref={scrollRef} scrollEnabled={keyboardOpen} keyboardShouldPersistTaps="handled" keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'} bounces={false} showsVerticalScrollIndicator={false} contentContainerStyle={[styles.content, compact && styles.compactContent]}>
           <Animated.View testID="welcome-brand" onLayout={({ nativeEvent }) => setBrandCenter(nativeEvent.layout.y + nativeEvent.layout.height / 2)} style={[styles.brand, {
             zIndex: 1,
             opacity: brandOpacity,
@@ -105,16 +139,32 @@ export function WelcomeScreen({ onStart, onLogin }: { onStart: () => void; onLog
             <Text accessibilityRole="header" style={[styles.title, compact && { fontSize: short ? 22 : 25, lineHeight: short ? 28 : 31 }]}>Seu dinheiro em ordem.{ '\n' }Sua vida mais leve.</Text>
             <Text style={[styles.subtitle, short && { fontSize: 13, lineHeight: 18 }]}>Organize seus gastos, alcance suas metas e conte com a IA no dia a dia.</Text>
             <View style={[styles.actions, compact && { marginTop: 0, gap: 8 }]}>
-              <Pressable accessibilityRole="button" disabled={!canInteract} onPress={onStart} style={({ pressed }) => [styles.primary, compact && styles.compactButton, pressed && styles.pressed]}>
-                <Text style={styles.primaryText}>Começar agora</Text>
-              </Pressable>
-              <Pressable accessibilityRole="button" disabled={!canInteract} onPress={onLogin} style={({ pressed }) => [styles.secondary, compact && styles.compactButton, pressed && styles.pressed]}>
-                <Text style={styles.secondaryText}>Já tenho uma conta</Text>
+              <Text style={styles.emailLabel}>Seu e-mail</Text>
+              <TextInput
+                accessibilityLabel="Seu e-mail"
+                placeholder="voce@email.com"
+                placeholderTextColor={palette.muted}
+                value={email}
+                onChangeText={(value) => { setEmail(value); setEmailError('') }}
+                editable={canInteract && !checking}
+                keyboardType="email-address"
+                autoCapitalize="none"
+                autoCorrect={false}
+                autoComplete="email"
+                textContentType="emailAddress"
+                returnKeyType="go"
+                onSubmitEditing={continueWithEmail}
+                style={[styles.emailInput, emailError ? styles.emailInputError : undefined]}
+              />
+              {emailError ? <Text accessibilityRole="alert" accessibilityLiveRegion="polite" style={styles.errorText}>{emailError}</Text> : null}
+              <Pressable accessibilityRole="button" accessibilityState={{ disabled: !canInteract || checking, busy: checking }} disabled={!canInteract || checking} onPress={() => void continueWithEmail()} style={({ pressed }) => [styles.primary, compact && styles.compactButton, checking && { opacity: 0.7 }, pressed && styles.pressed]}>
+                <Text style={styles.primaryText}>{checking ? 'Verificando…' : 'Continuar'}</Text>
               </Pressable>
             </View>
             <Text style={styles.footer}>Mais clareza para cada decisão financeira.</Text>
           </Animated.View>
-        </View>
+        </ScrollView>
+        </KeyboardAvoidingView>
       </SafeAreaView>
     </View>
   )
@@ -123,7 +173,7 @@ export function WelcomeScreen({ onStart, onLogin }: { onStart: () => void; onLog
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: '#090B10' },
   safeArea: { flex: 1 },
-  content: { flex: 1, minHeight: 0, paddingHorizontal: 24, paddingTop: 24, paddingBottom: 24, width: '100%', maxWidth: 480, alignSelf: 'center' },
+  content: { flexGrow: 1, flexShrink: 1, flexBasis: 0, paddingHorizontal: 24, paddingTop: 24, paddingBottom: 24, width: '100%', maxWidth: 480, alignSelf: 'center' },
   compactContent: { paddingHorizontal: 20, paddingVertical: 12 },
   compactButton: { minHeight: 48, paddingVertical: 12 },
   brand: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 9 },
@@ -134,9 +184,11 @@ const styles = StyleSheet.create({
   subtitle: { color: palette.muted, fontSize: 14, lineHeight: 21, textAlign: 'center', paddingHorizontal: 8 },
   actions: { gap: 10, marginTop: 8 },
   primary: { minHeight: 54, borderRadius: 28, backgroundColor: palette.primary, alignItems: 'center', justifyContent: 'center', padding: 14 },
-  secondary: { minHeight: 54, borderRadius: 28, borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)', backgroundColor: '#141924', alignItems: 'center', justifyContent: 'center', padding: 14 },
+  emailLabel: { color: '#E3E6EF', fontSize: 13, fontWeight: '500' },
+  emailInput: { minHeight: 54, borderRadius: 16, borderWidth: 1, borderColor: 'rgba(255,255,255,0.14)', backgroundColor: '#141924', color: '#FFFFFF', fontSize: 16, paddingHorizontal: 16, paddingVertical: 14 },
+  emailInputError: { borderColor: '#FF9A9A' },
+  errorText: { color: '#FF9A9A', fontSize: 12, lineHeight: 18 },
   primaryText: { color: '#FFFFFF', fontSize: 15, fontWeight: '500' },
-  secondaryText: { color: '#E3E6EF', fontSize: 15, fontWeight: '500' },
   footer: { color: palette.muted, fontSize: 12, lineHeight: 18, textAlign: 'center', marginTop: 4 },
   pressed: { opacity: 0.8 },
 })
