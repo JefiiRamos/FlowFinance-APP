@@ -27,6 +27,7 @@ import { AccountEntry } from '@/components/account-entry'
 import { AuthBackground, authVisuals } from '@/components/auth-visuals'
 import { useAuthModeMotion } from '@/components/use-auth-mode-motion'
 import { WelcomeKeyboardLayout } from '@/components/keyboard-layout'
+import { KeyboardTabFooter } from '@/components/keyboard-tab-footer'
 import { SharedEmailAnchor } from '@/components/auth-flow-anchors'
 
 import {
@@ -105,12 +106,6 @@ function formatDate(date: string) {
 }
 
 export default function FlowFinanceApp() {
-  const [keyboardOpen, setKeyboardOpen] = useState(false)
-  useEffect(() => {
-    const show = Keyboard.addListener('keyboardDidShow', () => setKeyboardOpen(true))
-    const hide = Keyboard.addListener('keyboardDidHide', () => setKeyboardOpen(false))
-    return () => { show.remove(); hide.remove() }
-  }, [])
   const [booting, setBooting] = useState(true)
   const [user, setUser] = useState<UserProfile | null>(null)
   const [showAccountIntro, setShowAccountIntro] = useState(false)
@@ -276,7 +271,7 @@ export default function FlowFinanceApp() {
           {section === 'mais' && <MoreSection user={user} onGoTo={setSection} onLogout={handleLogout} />}
         </ScrollView>}
       </View>
-      {!keyboardOpen && <BottomTabs section={section} onChange={setSection} />}
+      <KeyboardTabFooter><BottomTabs section={section} onChange={setSection} /></KeyboardTabFooter>
       <TransactionModal
         open={transactionModalOpen}
         editing={editingTransaction}
