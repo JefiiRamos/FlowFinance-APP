@@ -79,9 +79,15 @@ async function main() {
     await page.getByTestId('account-entry').waitFor()
     await page.emulateMedia({ reducedMotion: 'reduce' })
     await assertReady(page)
+    await page.emulateMedia({ reducedMotion: 'no-preference' })
     await page.reload()
+    await page.waitForFunction(() => {
+      const greeting = document.querySelector('[data-testid="account-welcome-greeting"]')
+      return greeting && Number(getComputedStyle(greeting).opacity) > 0.99 && greeting.getBoundingClientRect().top > 300
+    })
+    assert.equal(await page.getByTestId('account-content').count(), 0, 'Restored session must animate the header before showing content')
     await assertReady(page)
-    assert.ok((await page.getByTestId('auth-shared-brand').boundingBox()).y < 50, 'Restored session must skip the introduction')
+    assert.ok((await page.getByTestId('auth-shared-brand').boundingBox()).y < 50, 'Restored session must finish with the brand in the header')
     const reduced = await browser.newPage({ viewport: { width: 320, height: 568 }, reducedMotion: 'reduce' })
     await fixtures(reduced, errors)
     await reduced.goto('http://127.0.0.1:8834')

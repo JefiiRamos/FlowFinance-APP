@@ -153,8 +153,9 @@ export default function FlowFinanceApp() {
     try {
       if (!(await getAuthToken())) return
       const profile = await getMe()
-      setUser(profile)
       if (profile.onboardingCompleted) await loadAll()
+      setShowAccountIntro(true)
+      setUser(profile)
     } catch (error) {
       if (error instanceof ApiError && error.status === 401) await clearAuthToken()
       else Alert.alert(error instanceof ApiError && error.status > 0 ? 'Erro na API' : 'Conexão', error instanceof Error ? error.message : 'Não foi possível carregar seus dados.')
