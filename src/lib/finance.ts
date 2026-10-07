@@ -49,8 +49,7 @@ export function getBalance(transactions: Transaction[]): number {
   return getTotalIncome(transactions) - getTotalExpenses(transactions)
 }
 
-export function currentMonthTransactions(transactions: Transaction[]): Transaction[] {
-  const now = new Date()
+export function currentMonthTransactions(transactions: Transaction[], now = new Date()): Transaction[] {
   return transactions.filter((t) => {
     const date = new Date(t.date)
     return date.getFullYear() === now.getFullYear() && date.getMonth() === now.getMonth()
@@ -112,4 +111,3 @@ export function financialInsight(transactions: Transaction[]): string {
   if (percent < 100) return 'Atencao: os gastos ja consomem boa parte da receita do mes.'
   return 'Os gastos do mes passaram da receita. Priorize cortes imediatos e revise despesas fixas.'
 }
-

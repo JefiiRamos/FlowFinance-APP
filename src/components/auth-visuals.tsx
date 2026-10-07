@@ -1,4 +1,4 @@
-import { useEffect, useId, useState } from 'react'
+import { memo, useEffect, useId, useState } from 'react'
 import { AccessibilityInfo, Animated, AppState, Easing, StyleSheet, View } from 'react-native'
 import { LinearGradient } from 'expo-linear-gradient'
 import Svg, { Circle, Defs, G, Path, RadialGradient, Rect, Stop } from 'react-native-svg'
@@ -11,6 +11,7 @@ const samples = Array.from({ length: 33 }, (_, index) => index / 32)
 function useDetailMotion(enabled: boolean) {
   const [motion] = useState(() => new Animated.Value(0))
   useEffect(() => {
+    if (!enabled) return
     let disposed = false
     let reduced = true
     let appState = AppState.currentState
@@ -54,14 +55,15 @@ function orbitPoint(phase: number, outer: boolean) {
   return { x: 438 + Math.cos(angle) * radius, y: 58 + Math.sin(angle) * radius }
 }
 
-function AuthDecoration({ variant, enabled }: { variant: 'login' | 'register'; enabled: boolean }) {
+const wave = samples.map(wavePoint)
+const innerOrbit = samples.map(phase => orbitPoint(phase, false))
+const outerOrbit = samples.map(phase => orbitPoint(phase, true))
+
+const AuthDecoration = memo(function AuthDecoration({ variant, enabled }: { variant: 'login' | 'register'; enabled: boolean }) {
   const id = useId().replace(/:/g, '')
   const accent = '#9582FF'
   const motion = useDetailMotion(enabled)
   const coordinate = (points: { x: number; y: number }[], axis: 'x' | 'y') => motion.interpolate({ inputRange: samples, outputRange: points.map(point => point[axis]) })
-  const wave = samples.map(wavePoint)
-  const innerOrbit = samples.map(phase => orbitPoint(phase, false))
-  const outerOrbit = samples.map(phase => orbitPoint(phase, true))
   return (
         <Svg width="100%" height="100%" viewBox="0 0 430 932" preserveAspectRatio="xMidYMid slice">
           <Defs>
@@ -92,7 +94,7 @@ function AuthDecoration({ variant, enabled }: { variant: 'login' | 'register'; e
           </G>}
         </Svg>
   )
-}
+})
 
 export function AuthBackground({ variant = 'welcome', progress }: { variant?: 'welcome' | 'login' | 'register' | 'account'; progress?: Animated.Value }) {
   if (variant === 'welcome') {
@@ -101,10 +103,10 @@ export function AuthBackground({ variant = 'welcome', progress }: { variant?: 'w
   return (
     <View pointerEvents="none" accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={[StyleSheet.absoluteFill, { backgroundColor: '#090D14', overflow: 'hidden' }]}>
       <Animated.View testID="auth-login-decoration" style={[StyleSheet.absoluteFill, { opacity: progress ? progress.interpolate({ inputRange: [0, 1], outputRange: [1, 0] }) : variant === 'account' ? 0.55 : variant === 'login' ? 1 : 0, transform: [{ translateY: progress ? progress.interpolate({ inputRange: [0, 1], outputRange: [0, 28] }) : 0 }] }]}>
-        <AuthDecoration variant="login" enabled={variant === 'login' || variant === 'account'} />
+        <AuthDecoration variant="login" enabled={variant === 'login'} />
       </Animated.View>
       <Animated.View testID="auth-register-decoration" style={[StyleSheet.absoluteFill, { opacity: progress ?? (variant === 'account' ? 0.3 : variant === 'register' ? 1 : 0), transform: [{ translateY: progress ? progress.interpolate({ inputRange: [0, 1], outputRange: [-24, 0] }) : 0 }] }]}>
-        <AuthDecoration variant="register" enabled={variant === 'register' || variant === 'account'} />
+        <AuthDecoration variant="register" enabled={variant === 'register'} />
       </Animated.View>
     </View>
   )

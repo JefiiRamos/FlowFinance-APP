@@ -48,7 +48,7 @@ async function assertReady(page) {
   })
   const box = await page.getByText('Seu saldo disponível', { exact: true }).boundingBox()
   assert.ok(box && box.y >= 0 && box.y + box.height <= page.viewportSize().height)
-  assert.equal(await page.getByRole('tab').count(), 5)
+  assert.equal(await page.getByRole('tab').count(), 4)
   assert.equal(await page.getByTestId('auth-flow-form').count(), 0, 'Authentication stack must unmount after login')
 }
 
@@ -71,7 +71,7 @@ async function main() {
       const header = await page.getByTestId('auth-shared-brand').boundingBox()
       assert.ok(header.y < 50, 'Header must finish before content reveal')
       await assertReady(page)
-      await page.getByRole('tab', { name: 'Mais', exact: true }).click()
+      await page.getByRole('tab', { name: 'Perfil', exact: true }).click()
       await page.getByRole('button', { name: 'Sair da conta', exact: true }).click()
       await page.getByLabel('Seu e-mail', { exact: true }).waitFor()
     }

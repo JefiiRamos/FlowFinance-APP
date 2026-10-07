@@ -77,11 +77,10 @@ type Section = 'inicio' | 'transacoes' | 'graficos' | 'metas' | 'recorrentes' | 
 type AuthMode = 'login' | 'register'
 
 const tabs: { id: Section; label: string; icon: IconName }[] = [
-  { id: 'inicio', label: 'Início', icon: 'home' },
+  { id: 'assistente', label: 'Conversa', icon: 'sparkles' },
   { id: 'transacoes', label: 'Extrato', icon: 'wallet' },
-  { id: 'assistente', label: 'IA', icon: 'sparkles' },
-  { id: 'metas', label: 'Metas', icon: 'target' },
-  { id: 'mais', label: 'Mais', icon: 'grid' },
+  { id: 'metas', label: 'Planejar', icon: 'target' },
+  { id: 'mais', label: 'Perfil', icon: 'user' },
 ]
 
 const profiles = [
@@ -119,7 +118,7 @@ export default function FlowFinanceApp() {
   const [authMode, setAuthMode] = useState<AuthMode>('login')
   const [authVisible, setAuthVisible] = useState(false)
   const [authEmail, setAuthEmail] = useState('')
-  const [section, setSection] = useState<Section>('inicio')
+  const [section, setSection] = useState<Section>('assistente')
   const [transactions, setTransactions] = useState<Transaction[]>([])
   const [goalsList, setGoalsList] = useState<GoalItem[]>([])
   const [limits, setLimits] = useState<Record<string, number>>({})
@@ -184,6 +183,10 @@ export default function FlowFinanceApp() {
     }
   }
 
+  const refreshTransactions = useCallback(async () => {
+    setTransactions(await fetchTransactions())
+  }, [])
+
   async function handleAuthenticated(profile: UserProfile) {
     if (profile.onboardingCompleted) await loadAll()
     Keyboard.dismiss()
@@ -205,7 +208,7 @@ export default function FlowFinanceApp() {
     setRecurringWarning(null)
     setTransactionModalOpen(false)
     setEditingTransaction(null)
-    setSection('inicio')
+    setSection('assistente')
   }
 
   if (booting) return <LoadingScreen />
@@ -224,10 +227,10 @@ export default function FlowFinanceApp() {
 
     <View style={styles.app}>
       <View style={styles.safeArea}>
-        <Header user={user} section={section} onGoTo={setSection} />
+        {['inicio', 'graficos', 'recorrentes', 'simulador'].includes(section) && <Pressable accessibilityRole="button" accessibilityLabel="Voltar para o perfil" onPress={() => setSection('mais')} style={[styles.inline, { minHeight: 44, paddingHorizontal: 24 }]}><FinanceIcon name="back" /><Text style={styles.linkText}>Voltar</Text></Pressable>}
         {recurringWarning && <View accessibilityRole="alert" style={[styles.panel, { marginHorizontal: 22, padding: 12 }]}><Text style={styles.muted}>{recurringWarning}</Text></View>}
         <View style={{ flex: 1, display: section === 'assistente' ? 'flex' : 'none' }}>
-          <AssistantSection onTransactionCreated={refresh} onEdit={(transaction) => { setEditingTransaction(transaction); setTransactionModalOpen(true) }} bottomSpace={keyboardOpen ? 12 : 104 + insets.bottom} />
+          <AssistantSection transactions={transactions} onGoTo={setSection} onTransactionCreated={refreshTransactions} onEdit={(transaction) => { setEditingTransaction(transaction); setTransactionModalOpen(true) }} bottomSpace={keyboardOpen ? 12 : 104 + insets.bottom} />
         </View>
         {section !== 'assistente' && <ScrollView
           style={styles.content}
@@ -483,27 +486,13 @@ function OnboardingScreen({ user, onComplete }: { user: UserProfile; onComplete:
   )
 }
 
-function Header({ user, section, onGoTo }: { user: UserProfile; section: Section; onGoTo: (section: Section) => void }) {
-  const name = user.name ?? user.email.split('@')[0]
-  const titles: Record<Section, string> = { inicio: name, transacoes: 'Suas transações', graficos: 'Visão financeira', metas: 'Metas e orçamento', recorrentes: 'Sua rotina financeira', simulador: 'Simular o futuro', assistente: 'Assistente IA', mais: 'Seu espaço' }
-  const secondary = ['graficos', 'recorrentes', 'simulador'].includes(section)
-  return (
-    <View style={styles.header}>
-      {secondary ? <Pressable accessibilityLabel="Voltar para Mais" style={styles.roundButton} onPress={() => onGoTo('mais')}><FinanceIcon name="back" /></Pressable> : <View style={styles.avatar}><Text style={styles.avatarText}>{section === 'assistente' ? 'F' : name.charAt(0).toUpperCase()}</Text></View>}
-      <View style={styles.headerCopy}>
-        <Text style={styles.headerEyebrow}>{section === 'inicio' ? new Intl.DateTimeFormat('pt-BR', { month: 'long', year: 'numeric' }).format(new Date()) : section === 'assistente' ? 'Seu assistente financeiro' : 'FlowFinance'}</Text>
-        <Text style={styles.headerTitle} numberOfLines={2}>{titles[section]}</Text>
-      </View>
-      <Pressable accessibilityLabel="Abrir metas" style={styles.roundButton} onPress={() => onGoTo('metas')}>
-        <FinanceIcon name="target" size={20} />
-      </Pressable>
-    </View>
-  )
-}
 
 function HomeSection({ transactions, goals, onGoTo }: { transactions: Transaction[]; goals: GoalItem[]; onGoTo: (section: Section) => void }) {
   const { width } = useWindowDimensions()
-  const monthTransactions = useMemo(() => currentMonthTransactions(transactions), [transactions])
+  const now = new Date()
+  const year = now.getFullYear()
+  const month = now.getMonth()
+  const monthTransactions = useMemo(() => currentMonthTransactions(transactions, new Date(year, month, 1)), [transactions, year, month])
   const monthlyIncome = getTotalIncome(monthTransactions)
   const monthlyExpenses = getTotalExpenses(monthTransactions)
   const balance = getBalance(transactions)
@@ -827,15 +816,45 @@ function SimulatorSection({ transactions }: { transactions: Transaction[] }) {
   )
 }
 
-function AssistantSection({ onTransactionCreated, onEdit, bottomSpace }: { onTransactionCreated: () => Promise<void>; onEdit: (transaction: Transaction) => void; bottomSpace: number }) {
+function AssistantSection({ transactions, onGoTo, onTransactionCreated, onEdit, bottomSpace }: { transactions: Transaction[]; onGoTo: (section: Section) => void; onTransactionCreated: () => Promise<void>; onEdit: (transaction: Transaction) => void; bottomSpace: number }) {
+  const composer = useRef<TextInput>(null)
+  const [valuesVisible, setValuesVisible] = useState(true)
+  const { width, height } = useWindowDimensions()
+  const compact = (Platform.OS === 'android' ? Dimensions.get('screen').height : height) < 680
+  const now = new Date()
+  const year = now.getFullYear()
+  const month = now.getMonth()
+  const monthTransactions = useMemo(() => currentMonthTransactions(transactions, new Date(year, month, 1)), [transactions, year, month])
+  const balance = useMemo(() => getBalance(transactions), [transactions])
+  const monthExpenses = useMemo(() => getTotalExpenses(monthTransactions), [monthTransactions])
+  const balanceText = useMemo(() => formatCurrency(balance), [balance])
+  const expenseText = useMemo(() => formatCurrency(monthExpenses), [monthExpenses])
+  const summaryFontSize = Math.max(9, Math.min(22, (Math.min(width * 0.9, 560) - 101) / 2 / (Math.max(balanceText.length, expenseText.length) * 0.66)))
   const [createdTransaction, setCreatedTransaction] = useState<Transaction | null>(null)
   const conversation = useRef<ScrollView>(null)
   const [error, setError] = useState<string | null>(null)
-  const [messages, setMessages] = useState<{ role: 'user' | 'assistant'; content: string }[]>([
-    { role: 'assistant', content: 'Olá! Vamos deixar suas finanças mais leves? Me conte uma receita ou um gasto e eu registro para você.' },
-  ])
+  const [messages, setMessages] = useState<{ role: 'user' | 'assistant'; content: string }[]>([])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
+
+  const messageBubbles = useMemo(() => messages.map((message, index) => (
+          <View key={`${message.role}-${index}`} style={[styles.chatBubble, message.role === 'user' ? styles.userBubble : styles.assistantBubble]}>
+            <Text style={message.role === 'user' ? styles.userMessageLabel : styles.messageLabel}>{message.role === 'user' ? 'VOCÊ' : 'FLOW ASSISTANT'}</Text>
+            <Text selectable style={message.role === 'user' ? styles.userMessageText : styles.bodyText}>{message.content}</Text>
+          </View>
+        )), [messages])
+
+  function summarizeMonth() {
+    if (loading) return
+    const month = monthTransactions
+    const income = getTotalIncome(month)
+    const expenses = getTotalExpenses(month)
+    const reply = month.length === 0
+      ? 'Ainda não há lançamentos neste mês. Conte uma receita ou um gasto para começarmos.'
+      : `Seu mês até agora:\n\nReceitas: ${formatCurrency(income)}\nGastos: ${formatCurrency(expenses)}\nResultado do mês: ${formatCurrency(income - expenses)}\n\nVocê pode conferir cada lançamento no Extrato.`
+    setMessages(previous => [...previous, { role: 'user', content: 'Como está meu mês?' }, { role: 'assistant', content: reply }])
+    setError(null)
+  }
 
   async function send(text = input) {
     if (!text.trim() || loading) return
@@ -864,18 +883,24 @@ function AssistantSection({ onTransactionCreated, onEdit, bottomSpace }: { onTra
 
   return (
     <KeyboardAvoidingView style={[styles.chatScreen, { paddingBottom: bottomSpace }]} behavior={Platform.OS === 'ios' ? 'padding' : undefined} keyboardVerticalOffset={90}>
-      <ScrollView ref={conversation} keyboardShouldPersistTaps="handled" contentContainerStyle={styles.conversation} onContentSizeChange={() => conversation.current?.scrollToEnd({ animated: true })}>
-        <View style={styles.chatIntro}>
-          <View style={styles.chatEmblem}><FinanceIcon name="sparkles" size={28} /></View>
-          <Text style={[styles.title, { textAlign: 'center' }]}>Mais clareza. Menos esforço.</Text>
-          <Text style={styles.chatSubtitle}>Sua vida financeira começa com uma conversa.</Text>
-        </View>
-        {messages.map((message, index) => (
-          <View key={`${message.role}-${index}`} style={[styles.chatBubble, message.role === 'user' ? styles.userBubble : styles.assistantBubble]}>
-            <Text style={message.role === 'user' ? styles.userMessageLabel : styles.messageLabel}>{message.role === 'user' ? 'VOCÊ' : 'FLOW ASSISTANT'}</Text>
-            <Text selectable style={message.role === 'user' ? styles.userMessageText : styles.bodyText}>{message.content}</Text>
+      <View style={styles.chatSummary}>
+        <Pressable accessibilityRole="button" accessibilityLabel="Ver visão geral do saldo" onPress={() => onGoTo('inicio')} style={{ flex: 1, gap: 5 }}><Text style={[styles.muted, compact && { fontSize: 11, lineHeight: 16, minHeight: 32 }]}>Seu saldo disponível</Text><Text numberOfLines={1} style={[styles.summaryValue, { fontSize: summaryFontSize }]}>{valuesVisible ? balanceText : '•••••'}</Text></Pressable>
+        <View style={styles.summaryDivider} />
+        <Pressable accessibilityRole="button" accessibilityLabel="Ver gastos no extrato" onPress={() => onGoTo('transacoes')} style={{ flex: 1, gap: 5 }}><Text style={[styles.muted, compact && { fontSize: 11, lineHeight: 16, minHeight: 32 }]}>Gastos do mês</Text><Text numberOfLines={1} style={[styles.summaryValue, { fontSize: summaryFontSize }]}>{valuesVisible ? expenseText : '•••••'}</Text></Pressable>
+        <Pressable accessibilityRole="button" accessibilityLabel={valuesVisible ? 'Ocultar valores' : 'Mostrar valores'} onPress={() => setValuesVisible(value => !value)} style={{ minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' }}><FinanceIcon name={valuesVisible ? 'eye-off' : 'eye'} size={18} color={palette.muted} /></Pressable>
+      </View>
+      <ScrollView ref={conversation} keyboardShouldPersistTaps="handled" contentContainerStyle={[styles.conversation, compact && { paddingVertical: 12 }]} onLayout={({ nativeEvent }) => { if (messages.length > 0 && nativeEvent.layout.height > 0) conversation.current?.scrollToEnd({ animated: true }) }} onContentSizeChange={() => { if (messages.length > 0) conversation.current?.scrollToEnd({ animated: true }) }}>
+        {messages.length === 0 && <View style={[styles.chatIntro, compact && { paddingTop: 0, paddingBottom: 8, gap: 8 }]}>
+          {!compact && <View style={styles.chatEmblem}><FinanceIcon name="sparkles" size={24} /></View>}
+          <Text accessibilityRole="header" style={[styles.title, { textAlign: 'center', fontSize: compact ? 20 : 25, lineHeight: compact ? 26 : 32 }]}>O que vamos organizar hoje?</Text>
+          {!compact && <Text style={styles.chatSubtitle}>Um gasto, um resumo ou o próximo objetivo. Vamos por partes.</Text>}
+          <View style={styles.chatShortcuts}>
+            <Pressable accessibilityRole="button" accessibilityLabel="Registrar gasto" disabled={loading} onPress={() => { setInput('Gastei R$ '); composer.current?.focus() }} style={styles.chatShortcut}><FinanceIcon name="plus" size={20} /><Text style={styles.chatShortcutText}>Registrar gasto</Text></Pressable>
+            <Pressable accessibilityRole="button" accessibilityLabel="Entender meu mês" disabled={loading} onPress={summarizeMonth} style={styles.chatShortcut}><FinanceIcon name="chart" size={20} /><Text style={styles.chatShortcutText}>Entender meu mês</Text></Pressable>
+            <Pressable accessibilityRole="button" accessibilityLabel="Planejar meta" onPress={() => onGoTo('metas')} style={styles.chatShortcut}><FinanceIcon name="target" size={20} /><Text style={styles.chatShortcutText}>Planejar meta</Text></Pressable>
           </View>
-        ))}
+        </View>}
+        {messageBubbles}
         {loading && <View style={[styles.chatBubble, styles.assistantBubble, styles.inline]}><ActivityIndicator color={palette.primary} /><Text style={styles.muted}>Organizando por aqui...</Text></View>}
         {createdTransaction && <View accessibilityLiveRegion="polite" style={styles.panel}>
           <Text style={styles.cardTitle}>Lançamento registrado</Text>
@@ -883,15 +908,14 @@ function AssistantSection({ onTransactionCreated, onEdit, bottomSpace }: { onTra
           <SecondaryButton label="Revisar ou editar" onPress={() => onEdit(createdTransaction)} />
           <SecondaryButton label="Fechar confirmação" onPress={() => setCreatedTransaction(null)} />
         </View>}
-        {messages.length === 1 && <View style={styles.suggestions}>{['Gastei R$ 42 no Uber hoje', 'Recebi R$ 900 de freelance'].map((suggestion) => <Pressable key={suggestion} style={styles.suggestion} onPress={() => setInput(suggestion)}><Text style={styles.suggestionText}>{suggestion}</Text><FinanceIcon name="plus" size={16} /></Pressable>)}</View>}
       </ScrollView>
       <View style={styles.composerArea}>
         {error && <Text accessibilityRole="alert" style={styles.badText}>{error}</Text>}
         <View style={styles.composer}>
-          <TextInput accessibilityLabel="Mensagem para o assistente" multiline value={input} onChangeText={setInput} placeholder="Conte um gasto ou uma receita..." placeholderTextColor={palette.muted} style={styles.composerInput} />
+          <TextInput ref={composer} accessibilityLabel="Mensagem para o assistente" multiline value={input} onChangeText={setInput} placeholder="Conte um gasto ou pergunte sobre seu mês..." placeholderTextColor={palette.muted} style={styles.composerInput} />
           <Pressable accessibilityRole="button" accessibilityLabel="Enviar mensagem" disabled={loading || !input.trim()} onPress={() => void send()} style={[styles.sendButton, (loading || !input.trim()) && styles.disabled]}><FinanceIcon name="send" size={20} color="#FFFFFF" /></Pressable>
         </View>
-        <Text style={styles.helper}>Confira os lançamentos registrados no seu extrato.</Text>
+        <Text style={styles.helper}>Você conversa. O Flow organiza.</Text>
       </View>
     </KeyboardAvoidingView>
   )
@@ -990,6 +1014,7 @@ function TransactionModal({
 
 function MoreSection({ user, onGoTo, onLogout }: { user: UserProfile; onGoTo: (section: Section) => void; onLogout: () => void }) {
   const entries: { id: Section; title: string; description: string; icon: IconName }[] = [
+    { id: 'inicio', title: 'Visão geral', description: 'Veja seu saldo, projeções e movimentações', icon: 'home' },
     { id: 'metas', title: 'Metas e orçamento', description: 'Planeje seus objetivos e limites de gastos', icon: 'target' },
     { id: 'graficos', title: 'Gráficos e relatórios', description: 'Entenda para onde vai seu dinheiro', icon: 'chart' },
     { id: 'recorrentes', title: 'Receitas e contas fixas', description: 'Organize o que se repete todo mês', icon: 'repeat' },
@@ -1004,7 +1029,7 @@ function MoreSection({ user, onGoTo, onLogout }: { user: UserProfile; onGoTo: (s
 
 function BottomTabs({ section, onChange }: { section: Section; onChange: (section: Section) => void }) {
   const insets = useSafeAreaInsets()
-  const selected = ['graficos', 'recorrentes', 'simulador'].includes(section) ? 'mais' : section
+  const selected = ['inicio', 'graficos', 'recorrentes', 'simulador'].includes(section) ? 'mais' : section
   return (
     <View style={[styles.bottomTabs, { bottom: Math.max(insets.bottom, 12) }]}>
       <View style={styles.bottomTabsInner}>
@@ -1012,7 +1037,7 @@ function BottomTabs({ section, onChange }: { section: Section; onChange: (sectio
           const active = tab.id === selected
           const destination = tab.id
           return (
-            <Pressable key={tab.id} accessibilityRole="tab" accessibilityLabel={tab.id === 'assistente' ? 'Assistente IA' : tab.label} accessibilityState={{ selected: active }} style={[styles.tabButton, active && styles.tabButtonActive, tab.id === 'assistente' && styles.aiTab]} onPress={() => onChange(destination)}>
+            <Pressable key={tab.id} accessibilityRole="tab" accessibilityLabel={tab.label} accessibilityState={{ selected: active }} style={[styles.tabButton, active && styles.tabButtonActive, tab.id === 'assistente' && styles.aiTab]} onPress={() => onChange(destination)}>
               <FinanceIcon name={tab.icon} size={21} color={tab.id === 'assistente' ? '#FFFFFF' : active ? palette.primary : palette.muted} />
               <Text style={[styles.tabLabel, active && styles.tabTextActive, tab.id === 'assistente' && { color: '#FFFFFF' }]}>{tab.label}</Text>
             </Pressable>
@@ -1161,9 +1186,15 @@ const styles = StyleSheet.create({
   signOut: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', padding: 18, gap: 10 },
   addTabSlot: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   addTab: { width: 58, height: 58, borderRadius: 29, alignItems: 'center', justifyContent: 'center', backgroundColor: '#6E7CFF', borderWidth: 2, borderColor: '#8893FF', shadowColor: '#FFFFFF', shadowOffset: { width: 0, height: 5 }, shadowOpacity: 0.22, shadowRadius: 8, elevation: 4 },
+  chatSummary: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 16, paddingVertical: 14, marginHorizontal: 20, marginTop: 6, marginBottom: 4, borderRadius: 22, borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)', backgroundColor: '#141924', maxWidth: 560, width: '90%', alignSelf: 'center' },
+  summaryValue: { color: '#FFFFFF', fontWeight: '500', letterSpacing: -0.5 },
+  summaryDivider: { width: 1, height: 36, backgroundColor: 'rgba(255,255,255,0.08)' },
+  chatShortcuts: { flexDirection: 'row', gap: 8, width: '100%', marginTop: 6 },
+  chatShortcut: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 8, minHeight: 82, padding: 8, borderRadius: 18, backgroundColor: '#141924', borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)' },
+  chatShortcutText: { color: '#E3E6EF', fontSize: 12, lineHeight: 17, fontWeight: '500', textAlign: 'center' },
   chatScreen: { flex: 1, paddingBottom: 104 },
   conversation: { padding: 22, gap: 16, width: '100%', maxWidth: 600, alignSelf: 'center', flexGrow: 1 },
-  chatIntro: { alignItems: 'center', gap: 14, paddingTop: 20, paddingBottom: 28 },
+  chatIntro: { alignItems: 'center', gap: 12, paddingTop: 4, paddingBottom: 12 },
   chatEmblem: { width: 64, height: 64, borderRadius: 32, backgroundColor: 'rgba(255,255,255,0.06)', alignItems: 'center', justifyContent: 'center' },
   chatSubtitle: { color: '#A1A7B3', fontSize: 13, textAlign: 'center', lineHeight: 20 },
   messageLabel: { color: '#A1A7B3', fontSize: 13, fontWeight: '600', letterSpacing: 1.2 },
