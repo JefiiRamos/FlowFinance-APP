@@ -105,7 +105,6 @@ function formatDate(date: string) {
 }
 
 export default function FlowFinanceApp() {
-  const insets = useSafeAreaInsets()
   const [keyboardOpen, setKeyboardOpen] = useState(false)
   useEffect(() => {
     const show = Keyboard.addListener('keyboardDidShow', () => setKeyboardOpen(true))
@@ -231,12 +230,12 @@ export default function FlowFinanceApp() {
         {['inicio', 'graficos', 'recorrentes', 'simulador'].includes(section) && <Pressable accessibilityRole="button" accessibilityLabel="Voltar para o perfil" onPress={() => setSection('mais')} style={[styles.inline, { minHeight: 44, paddingHorizontal: 24 }]}><FinanceIcon name="back" /><Text style={styles.linkText}>Voltar</Text></Pressable>}
         {recurringWarning && <View accessibilityRole="alert" style={[styles.panel, { marginHorizontal: 22, padding: 12 }]}><Text style={styles.muted}>{recurringWarning}</Text></View>}
         <View style={{ flex: 1, display: section === 'assistente' ? 'flex' : 'none' }}>
-          <AssistantSection transactions={transactions} onGoTo={setSection} onTransactionCreated={refreshTransactions} onEdit={(transaction) => { setEditingTransaction(transaction); setTransactionModalOpen(true) }} bottomSpace={keyboardOpen ? 12 : 104 + insets.bottom} />
+          <AssistantSection transactions={transactions} onGoTo={setSection} onTransactionCreated={refreshTransactions} onEdit={(transaction) => { setEditingTransaction(transaction); setTransactionModalOpen(true) }} />
         </View>
         {section !== 'assistente' && <ScrollView
           style={styles.content}
           keyboardShouldPersistTaps="handled"
-          contentContainerStyle={[styles.contentInner, { paddingBottom: 112 + insets.bottom }]}
+          contentContainerStyle={styles.contentInner}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={palette.primary} />}>
           {section === 'inicio' && <HomeSection transactions={transactions} goals={goalsList} onGoTo={setSection} />}
           {section === 'transacoes' && (
@@ -817,7 +816,7 @@ function SimulatorSection({ transactions }: { transactions: Transaction[] }) {
   )
 }
 
-function AssistantSection({ transactions, onGoTo, onTransactionCreated, onEdit, bottomSpace }: { transactions: Transaction[]; onGoTo: (section: Section) => void; onTransactionCreated: () => Promise<void>; onEdit: (transaction: Transaction) => void; bottomSpace: number }) {
+function AssistantSection({ transactions, onGoTo, onTransactionCreated, onEdit }: { transactions: Transaction[]; onGoTo: (section: Section) => void; onTransactionCreated: () => Promise<void>; onEdit: (transaction: Transaction) => void }) {
   const composer = useRef<TextInput>(null)
   const [valuesVisible, setValuesVisible] = useState(true)
   const { width, height } = useWindowDimensions()
@@ -883,14 +882,15 @@ function AssistantSection({ transactions, onGoTo, onTransactionCreated, onEdit, 
   }
 
   return (
-    <KeyboardAvoidingView style={[styles.chatScreen, { paddingBottom: bottomSpace }]} behavior={Platform.OS === 'ios' ? 'padding' : undefined} keyboardVerticalOffset={90}>
+    <WelcomeKeyboardLayout>
+    <View style={styles.chatScreen}>
       <View style={styles.chatSummary}>
         <Pressable accessibilityRole="button" accessibilityLabel="Ver visão geral do saldo" onPress={() => onGoTo('inicio')} style={{ flex: 1, gap: 5 }}><Text style={[styles.muted, compact && { fontSize: 11, lineHeight: 16, minHeight: 32 }]}>Seu saldo disponível</Text><Text numberOfLines={1} style={[styles.summaryValue, { fontSize: summaryFontSize }]}>{valuesVisible ? balanceText : '•••••'}</Text></Pressable>
         <View style={styles.summaryDivider} />
         <Pressable accessibilityRole="button" accessibilityLabel="Ver gastos no extrato" onPress={() => onGoTo('transacoes')} style={{ flex: 1, gap: 5 }}><Text style={[styles.muted, compact && { fontSize: 11, lineHeight: 16, minHeight: 32 }]}>Gastos do mês</Text><Text numberOfLines={1} style={[styles.summaryValue, { fontSize: summaryFontSize }]}>{valuesVisible ? expenseText : '•••••'}</Text></Pressable>
         <Pressable accessibilityRole="button" accessibilityLabel={valuesVisible ? 'Ocultar valores' : 'Mostrar valores'} onPress={() => setValuesVisible(value => !value)} style={{ minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' }}><FinanceIcon name={valuesVisible ? 'eye-off' : 'eye'} size={18} color={palette.muted} /></Pressable>
       </View>
-      <ScrollView ref={conversation} keyboardShouldPersistTaps="handled" contentContainerStyle={[styles.conversation, compact && { paddingVertical: 12 }]} onLayout={({ nativeEvent }) => { if (messages.length > 0 && nativeEvent.layout.height > 0) conversation.current?.scrollToEnd({ animated: true }) }} onContentSizeChange={() => { if (messages.length > 0) conversation.current?.scrollToEnd({ animated: true }) }}>
+      <ScrollView style={styles.chatMessages} ref={conversation} keyboardShouldPersistTaps="handled" contentContainerStyle={[styles.conversation, compact && { paddingVertical: 12 }]} onLayout={({ nativeEvent }) => { if (messages.length > 0 && nativeEvent.layout.height > 0) conversation.current?.scrollToEnd({ animated: true }) }} onContentSizeChange={() => { if (messages.length > 0) conversation.current?.scrollToEnd({ animated: true }) }}>
         {messages.length === 0 && <View style={[styles.chatIntro, compact && { paddingTop: 0, paddingBottom: 8, gap: 8 }]}>
           {!compact && <View style={styles.chatEmblem}><FinanceIcon name="sparkles" size={24} /></View>}
           <Text accessibilityRole="header" style={[styles.title, { textAlign: 'center', fontSize: compact ? 20 : 25, lineHeight: compact ? 26 : 32 }]}>O que vamos organizar hoje?</Text>
@@ -918,7 +918,8 @@ function AssistantSection({ transactions, onGoTo, onTransactionCreated, onEdit, 
         </View>
         <Text style={styles.helper}>Você conversa. O Flow organiza.</Text>
       </View>
-    </KeyboardAvoidingView>
+    </View>
+    </WelcomeKeyboardLayout>
   )
 }
 
@@ -1029,10 +1030,10 @@ function MoreSection({ user, onGoTo, onLogout }: { user: UserProfile; onGoTo: (s
 }
 
 function BottomTabs({ section, onChange }: { section: Section; onChange: (section: Section) => void }) {
-  const insets = useSafeAreaInsets()
   const selected = ['inicio', 'graficos', 'recorrentes', 'simulador'].includes(section) ? 'mais' : section
   return (
-    <View style={[styles.bottomTabs, { bottom: Math.max(insets.bottom, 12) }]}>
+    <View testID="bottom-tab-footer" style={styles.tabFooter}>
+    <View style={styles.bottomTabs}>
       <View style={styles.bottomTabsInner}>
         {tabs.map((tab) => {
           const active = tab.id === selected
@@ -1045,6 +1046,7 @@ function BottomTabs({ section, onChange }: { section: Section; onChange: (sectio
           )
         })}
       </View>
+    </View>
     </View>
   )
 }
@@ -1193,7 +1195,8 @@ const styles = StyleSheet.create({
   chatShortcuts: { flexDirection: 'row', gap: 8, width: '100%', marginTop: 6 },
   chatShortcut: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 8, minHeight: 82, padding: 8, borderRadius: 18, backgroundColor: '#141924', borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)' },
   chatShortcutText: { color: '#E3E6EF', fontSize: 12, lineHeight: 17, fontWeight: '500', textAlign: 'center' },
-  chatScreen: { flex: 1, paddingBottom: 104 },
+  chatScreen: { flex: 1, minHeight: 0, paddingBottom: 8 },
+  chatMessages: { flex: 1, minHeight: 0 },
   conversation: { padding: 22, gap: 16, width: '100%', maxWidth: 600, alignSelf: 'center', flexGrow: 1 },
   chatIntro: { alignItems: 'center', gap: 12, paddingTop: 4, paddingBottom: 12 },
   chatEmblem: { width: 64, height: 64, borderRadius: 32, backgroundColor: 'rgba(255,255,255,0.06)', alignItems: 'center', justifyContent: 'center' },
@@ -1204,7 +1207,7 @@ const styles = StyleSheet.create({
   suggestions: { gap: 10, marginTop: 6 },
   suggestion: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: 15, borderRadius: 22, borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)', backgroundColor: 'rgba(255,255,255,0.06)' },
   suggestionText: { color: '#6E7CFF', fontSize: 13, flex: 1 },
-  composerArea: { gap: 8, paddingHorizontal: 18, paddingTop: 10, maxWidth: 600, width: '100%', alignSelf: 'center' },
+  composerArea: { flexShrink: 0, gap: 8, paddingHorizontal: 18, paddingTop: 10, maxWidth: 600, width: '100%', alignSelf: 'center' },
   composer: { flexDirection: 'row', alignItems: 'center', gap: 8, padding: 8, borderRadius: 30, backgroundColor: '#141924', borderWidth: 1, borderColor: 'rgba(255,255,255,0.14)' },
   composerInput: { flex: 1, color: '#FFFFFF', fontSize: 16, lineHeight: 22, paddingHorizontal: 12, paddingVertical: 10, maxHeight: 104 },
   sendButton: { width: 48, height: 48, borderRadius: 22, alignItems: 'center', justifyContent: 'center', backgroundColor: '#6E7CFF' },
@@ -1224,7 +1227,7 @@ const styles = StyleSheet.create({
   logoutButton: { borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)', borderRadius: 12, paddingHorizontal: 12, paddingVertical: 8 },
   logoutText: { color: '#6E7CFF', fontWeight: '500' },
   content: { flex: 1 },
-  contentInner: { paddingHorizontal: 24, paddingTop: 20, paddingBottom: 140, gap: 20, width: '100%', maxWidth: 600, alignSelf: 'center' },
+  contentInner: { paddingHorizontal: 24, paddingTop: 20, paddingBottom: 24, gap: 20, width: '100%', maxWidth: 600, alignSelf: 'center' },
   stack: { gap: 22 },
   panel: { ...authVisuals.card, gap: 16, padding: 20 },
   title: { ...authVisuals.title, fontSize: 25, lineHeight: 32, textAlign: 'left' },
@@ -1287,7 +1290,8 @@ const styles = StyleSheet.create({
   modalBackdrop: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.62)' },
   modalCard: { maxHeight: '92%', gap: 16, padding: 24, paddingBottom: 38, borderTopLeftRadius: 32, borderTopRightRadius: 32, backgroundColor: '#141924', borderWidth: 1, borderColor: 'rgba(255,255,255,0.14)' },
   modalActions: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, justifyContent: 'flex-end' },
-  bottomTabs: { position: 'absolute', left: 18, right: 18, alignSelf: 'center', maxWidth: 560, borderRadius: 40, backgroundColor: 'rgba(15,19,28,0.98)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)', shadowColor: '#314A70', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.12, shadowRadius: 20, elevation: 8 },
+  tabFooter: { flexShrink: 0, paddingHorizontal: 18, paddingTop: 8, paddingBottom: 12 },
+  bottomTabs: { width: '100%', alignSelf: 'center', maxWidth: 560, borderRadius: 40, backgroundColor: 'rgba(15,19,28,0.98)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)', shadowColor: '#314A70', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.12, shadowRadius: 20, elevation: 8 },
   bottomTabsInner: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 8, height: 78 },
   tabButton: { flex: 1, alignItems: 'center', gap: 6, borderRadius: 28, paddingVertical: 12 },
   tabButtonActive: { backgroundColor: 'rgba(64,93,134,0.06)' },

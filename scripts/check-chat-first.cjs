@@ -54,6 +54,11 @@ async function main() {
       await page.getByRole('button', { name: 'Registrar gasto', exact: true }).waitFor()
       assert.equal(await page.getByText('FlowFinance', { exact: true }).count(), 1)
       assert.equal(await page.getByText('Marina', { exact: true }).count(), 0, 'No second user header')
+      const footer = await page.getByTestId('bottom-tab-footer').boundingBox()
+      const composer = await page.getByLabel('Mensagem para o assistente').boundingBox()
+      const send = await page.getByRole('button', { name: 'Enviar mensagem', exact: true }).boundingBox()
+      assert.ok(composer.y + composer.height <= footer.y, 'Tabbar must not cover the message field')
+      assert.ok(send.y + send.height <= footer.y, 'Send button must remain above navigation')
       for (const [label, value] of [['Ver visão geral do saldo', 'R$ 300,00'], ['Ver gastos no extrato', 'R$ 200,00']]) {
         const fits = await page.getByRole('button', { name: label, exact: true }).getByText(value, { exact: true }).evaluate(node => node.scrollWidth <= node.clientWidth + 1)
         assert.ok(fits, 'Summary amounts must remain fully readable at ' + width)
