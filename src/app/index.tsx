@@ -22,6 +22,7 @@ import { StatusBar } from 'expo-status-bar'
 import { FinanceBackground, FinanceIcon, palette, type IconName } from '@/components/finance-visuals'
 import { WelcomeScreen } from '@/components/welcome-screen'
 import { AuthFlowTransition } from '@/components/auth-flow-transition'
+import { AccountSurface } from '@/components/account-surface'
 import { AuthBackground, authVisuals } from '@/components/auth-visuals'
 import { useAuthModeMotion } from '@/components/use-auth-mode-motion'
 import { WelcomeKeyboardLayout } from '@/components/keyboard-layout'
@@ -182,8 +183,9 @@ export default function FlowFinanceApp() {
   }
 
   async function handleAuthenticated(profile: UserProfile) {
-    setUser(profile)
     if (profile.onboardingCompleted) await loadAll()
+    Keyboard.dismiss()
+    setUser(profile)
   }
 
   async function handleLogout() {
@@ -204,40 +206,20 @@ export default function FlowFinanceApp() {
 
   if (booting) return <LoadingScreen />
 
-  if (!user) {
-    return (
-      <AuthFlowTransition
-        active={authVisible}
-        email={authEmail}
-        welcome={<WelcomeScreen initialEmail={authEmail} verifiedMode={authVisible ? authMode : undefined} onContinue={async (email) => {
-          const exists = await checkEmail(email)
-          setAuthEmail(email)
-          setAuthMode(exists ? 'login' : 'register')
-          setAuthVisible(true)
-        }} />}
-        auth={authEmail ? <AuthScreen key={authEmail} initialEmail={authEmail} mode={authMode} onAuthenticated={handleAuthenticated} onBack={() => { Keyboard.dismiss(); setAuthVisible(false) }} /> : null}
-      />
-    )
-  }
-
-  if (!user.onboardingCompleted) {
-    return (
+  const accountContent = !user ? null : !user.onboardingCompleted ? (
       <OnboardingScreen
         user={user}
         onComplete={async () => {
           const profile = await getMe()
-          setUser(profile)
           await loadAll()
+          Keyboard.dismiss()
+          setUser(profile)
         }}
       />
-    )
-  }
+  ) : (
 
-  return (
     <View style={styles.app}>
-      <FinanceBackground />
-      <StatusBar style="light" />
-      <SafeAreaView style={styles.safeArea}>
+      <View style={styles.safeArea}>
         <Header user={user} section={section} onGoTo={setSection} />
         {recurringWarning && <View accessibilityRole="alert" style={[styles.panel, { marginHorizontal: 22, padding: 12 }]}><Text style={styles.muted}>{recurringWarning}</Text></View>}
         <View style={{ flex: 1, display: section === 'assistente' ? 'flex' : 'none' }}>
@@ -286,7 +268,7 @@ export default function FlowFinanceApp() {
           {section === 'simulador' && <SimulatorSection transactions={transactions} />}
           {section === 'mais' && <MoreSection user={user} onGoTo={setSection} onLogout={handleLogout} />}
         </ScrollView>}
-      </SafeAreaView>
+      </View>
       {!keyboardOpen && <BottomTabs section={section} onChange={setSection} />}
       <TransactionModal
         open={transactionModalOpen}
@@ -298,6 +280,23 @@ export default function FlowFinanceApp() {
         onSaved={refresh}
       />
     </View>
+  )
+
+  return (
+      <AuthFlowTransition
+        active={authVisible}
+        authenticated={Boolean(user)}
+        userName={user?.name?.trim() || user?.email.split('@')[0] || ''}
+        email={user?.email ?? authEmail}
+        welcome={<WelcomeScreen initialEmail={authEmail} verifiedMode={authVisible ? authMode : undefined} onContinue={async (email) => {
+          const exists = await checkEmail(email)
+          setAuthEmail(email)
+          setAuthMode(exists ? 'login' : 'register')
+          setAuthVisible(true)
+        }} />}
+        auth={authEmail ? <AuthScreen key={authEmail} initialEmail={authEmail} mode={authMode} onAuthenticated={handleAuthenticated} onBack={() => { Keyboard.dismiss(); setAuthVisible(false) }} /> : null}
+        account={user ? <AccountSurface completed={user.onboardingCompleted}>{accountContent}</AccountSurface> : null}
+      />
   )
 }
 
@@ -445,9 +444,7 @@ function OnboardingScreen({ user, onComplete }: { user: UserProfile; onComplete:
 
   return (
     <View style={styles.app}>
-      <FinanceBackground />
-      <StatusBar style="light" />
-      <SafeAreaView style={styles.safeArea}>
+      <View style={styles.safeArea}>
       <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.contentInner}>
         <Text style={styles.brandMark}>COMECE DO SEU JEITO</Text>
         <Text style={styles.brandTitle}>Sua vida financeira,\ncom mais clareza.</Text>
@@ -476,7 +473,7 @@ function OnboardingScreen({ user, onComplete }: { user: UserProfile; onComplete:
         </View>
         <PrimaryButton label={saving ? 'Salvando...' : 'Finalizar'} onPress={submit} disabled={saving} />
       </ScrollView>
-      </SafeAreaView>
+      </View>
     </View>
   )
 }

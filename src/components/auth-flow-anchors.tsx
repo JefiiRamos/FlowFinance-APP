@@ -2,7 +2,7 @@ import { createContext, useContext, useEffect, useRef, type PropsWithChildren } 
 import { View } from 'react-native'
 
 export type AnchorRect = { x: number; y: number; width: number; height: number }
-export type AnchorStage = 'welcome' | 'auth'
+export type AnchorStage = 'welcome' | 'auth' | 'account'
 export const AuthAnchorContext = createContext({
   moving: false,
   active: false,
