@@ -94,23 +94,25 @@ function AuthDecoration({ variant, enabled }: { variant: 'login' | 'register'; e
   )
 }
 
-export function AuthBackground({ variant = 'welcome', progress }: { variant?: 'welcome' | 'login' | 'register'; progress?: Animated.Value }) {
+export function AuthBackground({ variant = 'welcome', progress }: { variant?: 'welcome' | 'login' | 'register' | 'account'; progress?: Animated.Value }) {
   if (variant === 'welcome') {
     return <LinearGradient pointerEvents="none" colors={['#23264F', '#15182C', '#090B10', '#090B10']} locations={[0, 0.32, 0.62, 1]} style={StyleSheet.absoluteFill} />
   }
   return (
     <View pointerEvents="none" accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={[StyleSheet.absoluteFill, { backgroundColor: '#090D14', overflow: 'hidden' }]}>
-      <Animated.View testID="auth-login-decoration" style={[StyleSheet.absoluteFill, { opacity: progress ? progress.interpolate({ inputRange: [0, 1], outputRange: [1, 0] }) : variant === 'login' ? 1 : 0, transform: [{ translateY: progress ? progress.interpolate({ inputRange: [0, 1], outputRange: [0, 28] }) : 0 }] }]}>
-        <AuthDecoration variant="login" enabled={variant === 'login'} />
+      <Animated.View testID="auth-login-decoration" style={[StyleSheet.absoluteFill, { opacity: progress ? progress.interpolate({ inputRange: [0, 1], outputRange: [1, 0] }) : variant === 'account' ? 0.55 : variant === 'login' ? 1 : 0, transform: [{ translateY: progress ? progress.interpolate({ inputRange: [0, 1], outputRange: [0, 28] }) : 0 }] }]}>
+        <AuthDecoration variant="login" enabled={variant === 'login' || variant === 'account'} />
       </Animated.View>
-      <Animated.View testID="auth-register-decoration" style={[StyleSheet.absoluteFill, { opacity: progress ?? (variant === 'register' ? 1 : 0), transform: [{ translateY: progress ? progress.interpolate({ inputRange: [0, 1], outputRange: [-24, 0] }) : 0 }] }]}>
-        <AuthDecoration variant="register" enabled={variant === 'register'} />
+      <Animated.View testID="auth-register-decoration" style={[StyleSheet.absoluteFill, { opacity: progress ?? (variant === 'account' ? 0.3 : variant === 'register' ? 1 : 0), transform: [{ translateY: progress ? progress.interpolate({ inputRange: [0, 1], outputRange: [-24, 0] }) : 0 }] }]}>
+        <AuthDecoration variant="register" enabled={variant === 'register' || variant === 'account'} />
       </Animated.View>
     </View>
   )
 }
 
 export const authVisuals = StyleSheet.create({
+  card: { borderRadius: 24, borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)', backgroundColor: '#141924' },
+  secondary: { minHeight: 54, borderRadius: 28, borderWidth: 1, borderColor: 'rgba(255,255,255,0.14)', backgroundColor: '#141924', alignItems: 'center', justifyContent: 'center', padding: 14 },
   brand: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 9 },
   brandName: { color: '#FFFFFF', fontSize: 20, fontWeight: '500', letterSpacing: -0.6 },
   title: { color: '#FFFFFF', fontSize: 28, fontWeight: '500', letterSpacing: -0.8, lineHeight: 35, textAlign: 'center' },

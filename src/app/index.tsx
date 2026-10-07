@@ -23,6 +23,7 @@ import { FinanceBackground, FinanceIcon, palette, type IconName } from '@/compon
 import { WelcomeScreen } from '@/components/welcome-screen'
 import { AuthFlowTransition } from '@/components/auth-flow-transition'
 import { AccountSurface } from '@/components/account-surface'
+import { AccountEntry } from '@/components/account-entry'
 import { AuthBackground, authVisuals } from '@/components/auth-visuals'
 import { useAuthModeMotion } from '@/components/use-auth-mode-motion'
 import { WelcomeKeyboardLayout } from '@/components/keyboard-layout'
@@ -114,6 +115,7 @@ export default function FlowFinanceApp() {
   }, [])
   const [booting, setBooting] = useState(true)
   const [user, setUser] = useState<UserProfile | null>(null)
+  const [showAccountIntro, setShowAccountIntro] = useState(false)
   const [authMode, setAuthMode] = useState<AuthMode>('login')
   const [authVisible, setAuthVisible] = useState(false)
   const [authEmail, setAuthEmail] = useState('')
@@ -185,12 +187,14 @@ export default function FlowFinanceApp() {
   async function handleAuthenticated(profile: UserProfile) {
     if (profile.onboardingCompleted) await loadAll()
     Keyboard.dismiss()
+    setShowAccountIntro(true)
     setUser(profile)
   }
 
   async function handleLogout() {
     try { await logout() } catch { /* A sessão local já foi removida. */ }
     setUser(null)
+    setShowAccountIntro(false)
     setAuthVisible(false)
     setAuthEmail('')
     setTransactions([])
@@ -282,12 +286,14 @@ export default function FlowFinanceApp() {
     </View>
   )
 
+  if (user) {
+    return <AccountEntry animate={showAccountIntro} userName={user.name?.trim() || user.email.split('@')[0]}><AccountSurface>{accountContent}</AccountSurface></AccountEntry>
+  }
+
   return (
       <AuthFlowTransition
         active={authVisible}
-        authenticated={Boolean(user)}
-        userName={user?.name?.trim() || user?.email.split('@')[0] || ''}
-        email={user?.email ?? authEmail}
+        email={authEmail}
         welcome={<WelcomeScreen initialEmail={authEmail} verifiedMode={authVisible ? authMode : undefined} onContinue={async (email) => {
           const exists = await checkEmail(email)
           setAuthEmail(email)
@@ -295,7 +301,6 @@ export default function FlowFinanceApp() {
           setAuthVisible(true)
         }} />}
         auth={authEmail ? <AuthScreen key={authEmail} initialEmail={authEmail} mode={authMode} onAuthenticated={handleAuthenticated} onBack={() => { Keyboard.dismiss(); setAuthVisible(false) }} /> : null}
-        account={user ? <AccountSurface completed={user.onboardingCompleted}>{accountContent}</AccountSurface> : null}
       />
   )
 }
@@ -1141,9 +1146,9 @@ const styles = StyleSheet.create({
   avatar: { width: 46, height: 46, borderRadius: 23, backgroundColor: '#141924', alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: 'rgba(255,255,255,0.06)' },
   avatarText: { color: '#6E7CFF', fontSize: 20, fontWeight: '500' },
   roundButton: { width: 44, height: 44, borderRadius: 22, backgroundColor: 'rgba(255,255,255,0.06)', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)' },
-  balanceCard: { gap: 26, padding: 22, borderRadius: 28, borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)', backgroundColor: 'rgba(255,255,255,0.06)' },
+  balanceCard: { ...authVisuals.card, gap: 26, padding: 22 },
   balanceArrow: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: '#6E7CFF' },
-  balanceValue: { flexShrink: 1, color: '#FFFFFF', fontSize: 37, fontWeight: '300', letterSpacing: -1.5 },
+  balanceValue: { flexShrink: 1, color: '#FFFFFF', fontSize: 37, fontWeight: '500', letterSpacing: -0.8 },
   eyeButton: { minWidth: 48, minHeight: 48, alignItems: 'center', justifyContent: 'center' },
   balancePill: { alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 8, paddingHorizontal: 12, borderRadius: 20, backgroundColor: 'rgba(255,255,255,0.06)' },
   balancePillText: { flexShrink: 1, color: '#6E7CFF', fontSize: 11 },
@@ -1168,10 +1173,10 @@ const styles = StyleSheet.create({
   suggestion: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: 15, borderRadius: 22, borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)', backgroundColor: 'rgba(255,255,255,0.06)' },
   suggestionText: { color: '#6E7CFF', fontSize: 13, flex: 1 },
   composerArea: { gap: 8, paddingHorizontal: 18, paddingTop: 10, maxWidth: 600, width: '100%', alignSelf: 'center' },
-  composer: { flexDirection: 'row', alignItems: 'center', gap: 8, padding: 8, borderRadius: 30, backgroundColor: 'rgba(255,255,255,0.06)', borderWidth: 1, borderColor: '#FFFFFF' },
+  composer: { flexDirection: 'row', alignItems: 'center', gap: 8, padding: 8, borderRadius: 30, backgroundColor: '#141924', borderWidth: 1, borderColor: 'rgba(255,255,255,0.14)' },
   composerInput: { flex: 1, color: '#FFFFFF', fontSize: 16, lineHeight: 22, paddingHorizontal: 12, paddingVertical: 10, maxHeight: 104 },
   sendButton: { width: 48, height: 48, borderRadius: 22, alignItems: 'center', justifyContent: 'center', backgroundColor: '#6E7CFF' },
-  app: { flex: 1, backgroundColor: '#090B10' },
+  app: { flex: 1, minHeight: 0, backgroundColor: 'transparent' },
   safeArea: { flex: 1 },
   centerScreen: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12, backgroundColor: '#090B10' },
   authScreen: { flexGrow: 1, flexShrink: 1, flexBasis: 0, justifyContent: 'center', gap: 20, paddingHorizontal: 24, paddingVertical: 24, maxWidth: 480, width: '100%', alignSelf: 'center' },
@@ -1179,29 +1184,29 @@ const styles = StyleSheet.create({
   authForm: { gap: 14 },
   brandBlock: { gap: 18, alignItems: 'center', paddingBottom: 8 },
   brandMark: { color: '#6E7CFF', fontSize: 22, fontWeight: '500', letterSpacing: -1 },
-  brandTitle: { color: '#FFFFFF', fontSize: 26, lineHeight: 32, fontWeight: '300', letterSpacing: -1.4, textAlign: 'center' },
-  brandSubtitle: { color: '#A1A7B3', fontSize: 14, lineHeight: 21, textAlign: 'center', maxWidth: 300 },
+  brandTitle: { ...authVisuals.title, fontSize: 26, lineHeight: 32 },
+  brandSubtitle: { ...authVisuals.subtitle, maxWidth: 300 },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, paddingHorizontal: 22, paddingVertical: 14, width: '100%', maxWidth: 600, alignSelf: 'center' },
   headerEyebrow: { color: '#6E7CFF', fontSize: 13, fontWeight: '500' },
-  headerTitle: { color: '#FFFFFF', fontSize: 24, fontWeight: '500' },
+  headerTitle: { ...authVisuals.title, fontSize: 24, lineHeight: 30, textAlign: 'left' },
   logoutButton: { borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)', borderRadius: 12, paddingHorizontal: 12, paddingVertical: 8 },
   logoutText: { color: '#6E7CFF', fontWeight: '500' },
   content: { flex: 1 },
-  contentInner: { padding: 22, paddingBottom: 140, gap: 20, width: '100%', maxWidth: 600, alignSelf: 'center' },
+  contentInner: { paddingHorizontal: 24, paddingTop: 20, paddingBottom: 140, gap: 20, width: '100%', maxWidth: 600, alignSelf: 'center' },
   stack: { gap: 22 },
-  panel: { gap: 14, padding: 20, borderRadius: 26, backgroundColor: 'rgba(255,255,255,0.06)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)' },
-  title: { color: '#FFFFFF', fontSize: 25, fontWeight: '400', letterSpacing: -0.8 },
-  cardTitle: { color: '#FFFFFF', fontSize: 15, fontWeight: '500' },
+  panel: { ...authVisuals.card, gap: 16, padding: 20 },
+  title: { ...authVisuals.title, fontSize: 25, lineHeight: 32, textAlign: 'left' },
+  cardTitle: { color: '#FFFFFF', fontSize: 16, lineHeight: 22, fontWeight: '500', letterSpacing: -0.3 },
   bodyText: { color: '#E3E6EF', fontSize: 14, lineHeight: 20 },
   muted: { color: '#A1A7B3', fontSize: 13, lineHeight: 18 },
   helper: { color: '#A1A7B3', fontSize: 13, textAlign: 'center' },
-  label: { color: '#6E7CFF', fontSize: 13, fontWeight: '500' },
+  label: { ...authVisuals.label },
   field: { gap: 6 },
-  input: { color: '#FFFFFF', fontSize: 16, minHeight: 52, borderRadius: 28, paddingHorizontal: 20, backgroundColor: 'rgba(255,255,255,0.06)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)' },
+  input: { ...authVisuals.input },
   rowBetween: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 },
   linkText: { color: '#6E7CFF', fontWeight: '500' },
   summaryGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
-  metricCard: { flexGrow: 1, flexBasis: '45%', minHeight: 98, gap: 16, justifyContent: 'space-between', padding: 16, borderRadius: 22, backgroundColor: 'rgba(255,255,255,0.06)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)' },
+  metricCard: { ...authVisuals.card, flexGrow: 1, flexBasis: '45%', minHeight: 98, gap: 16, justifyContent: 'space-between', padding: 16 },
   metricTitle: { color: '#A1A7B3', fontSize: 13, fontWeight: '500' },
   metricValue: { color: '#FFFFFF', fontSize: 18, fontWeight: '500' },
   metricGood: { color: '#4ADE80', fontSize: 18, fontWeight: '500' },
@@ -1223,11 +1228,11 @@ const styles = StyleSheet.create({
   choiceChipActive: { borderColor: '#6E7CFF', backgroundColor: 'rgba(64,93,134,0.12)' },
   choiceText: { color: '#6E7CFF', fontWeight: '500', fontSize: 12 },
   choiceTextActive: { color: '#FFFFFF' },
-  primaryButton: { minHeight: 52, alignItems: 'center', justifyContent: 'center', borderRadius: 28, paddingHorizontal: 22, backgroundColor: '#6E7CFF' },
+  primaryButton: { ...authVisuals.primary },
   compactButton: { minHeight: 48 },
-  primaryButtonText: { color: '#fff', fontWeight: '500' },
-  secondaryButton: { minHeight: 48, alignItems: 'center', justifyContent: 'center', borderRadius: 28, paddingHorizontal: 20, borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)', backgroundColor: 'rgba(255,255,255,0.06)' },
-  secondaryButtonText: { color: '#E3E6EF', fontWeight: '500' },
+  primaryButtonText: { ...authVisuals.primaryText },
+  secondaryButton: { ...authVisuals.secondary },
+  secondaryButtonText: { color: '#E3E6EF', fontSize: 15, fontWeight: '500' },
   disabled: { opacity: 0.55 },
   emptyText: { color: '#A1A7B3', textAlign: 'center', paddingVertical: 12 },
   listLine: { color: '#E3E6EF', paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: 'rgba(64,93,134,0.08)' },
@@ -1244,11 +1249,11 @@ const styles = StyleSheet.create({
   categoryTrack: { height: 8, borderRadius: 12, backgroundColor: 'rgba(255,255,255,0.06)', overflow: 'hidden' },
   categoryFill: { height: 8, borderRadius: 12, backgroundColor: '#6E7CFF' },
   budgetLine: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: 'rgba(64,93,134,0.08)' },
-  chatBubble: { gap: 8, padding: 18, borderRadius: 24, maxWidth: '88%', borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)' },
+  chatBubble: { ...authVisuals.card, gap: 8, padding: 18, maxWidth: '88%' },
   userBubble: { alignSelf: 'flex-end', backgroundColor: '#6E7CFF', borderBottomRightRadius: 6, borderColor: '#6E7CFF' },
-  assistantBubble: { alignSelf: 'flex-start', backgroundColor: 'rgba(255,255,255,0.06)', borderBottomLeftRadius: 6 },
+  assistantBubble: { alignSelf: 'flex-start', backgroundColor: '#141924', borderBottomLeftRadius: 6 },
   modalBackdrop: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.62)' },
-  modalCard: { maxHeight: '92%', gap: 16, padding: 24, paddingBottom: 38, borderTopLeftRadius: 32, borderTopRightRadius: 32, backgroundColor: '#0F131C', borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)' },
+  modalCard: { maxHeight: '92%', gap: 16, padding: 24, paddingBottom: 38, borderTopLeftRadius: 32, borderTopRightRadius: 32, backgroundColor: '#141924', borderWidth: 1, borderColor: 'rgba(255,255,255,0.14)' },
   modalActions: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, justifyContent: 'flex-end' },
   bottomTabs: { position: 'absolute', left: 18, right: 18, alignSelf: 'center', maxWidth: 560, borderRadius: 40, backgroundColor: 'rgba(15,19,28,0.98)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)', shadowColor: '#314A70', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.12, shadowRadius: 20, elevation: 8 },
   bottomTabsInner: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 8, height: 78 },
