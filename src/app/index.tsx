@@ -28,6 +28,7 @@ import { AuthBackground, authVisuals } from '@/components/auth-visuals'
 import { useAuthModeMotion } from '@/components/use-auth-mode-motion'
 import { WelcomeKeyboardLayout } from '@/components/keyboard-layout'
 import { KeyboardTabFooter } from '@/components/keyboard-tab-footer'
+import { SwipeTabs, usePagerPosition } from '@/components/swipe-tabs'
 import { SharedEmailAnchor } from '@/components/auth-flow-anchors'
 
 import {
@@ -113,6 +114,8 @@ export default function FlowFinanceApp() {
   const [authVisible, setAuthVisible] = useState(false)
   const [authEmail, setAuthEmail] = useState('')
   const [section, setSection] = useState<Section>('assistente')
+  const navigateToSection = useCallback((next: Section) => { Keyboard.dismiss(); setSection(next) }, [])
+  const navigateByTab = useCallback((index: number) => navigateToSection(tabs[index].id), [navigateToSection])
   const [transactions, setTransactions] = useState<Transaction[]>([])
   const [goalsList, setGoalsList] = useState<GoalItem[]>([])
   const [limits, setLimits] = useState<Record<string, number>>({})
@@ -221,57 +224,29 @@ export default function FlowFinanceApp() {
   ) : (
 
     <View style={styles.app}>
-      <View style={styles.safeArea}>
-        {['inicio', 'graficos', 'recorrentes', 'simulador'].includes(section) && <Pressable accessibilityRole="button" accessibilityLabel="Voltar para o perfil" onPress={() => setSection('mais')} style={[styles.inline, { minHeight: 44, paddingHorizontal: 24 }]}><FinanceIcon name="back" /><Text style={styles.linkText}>Voltar</Text></Pressable>}
-        {recurringWarning && <View accessibilityRole="alert" style={[styles.panel, { marginHorizontal: 22, padding: 12 }]}><Text style={styles.muted}>{recurringWarning}</Text></View>}
-        <View style={{ flex: 1, display: section === 'assistente' ? 'flex' : 'none' }}>
-          <AssistantSection transactions={transactions} onGoTo={setSection} onTransactionCreated={refreshTransactions} onEdit={(transaction) => { setEditingTransaction(transaction); setTransactionModalOpen(true) }} />
-        </View>
-        {section !== 'assistente' && <ScrollView
-          style={styles.content}
-          keyboardShouldPersistTaps="handled"
-          contentContainerStyle={styles.contentInner}
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={palette.primary} />}>
-          {section === 'inicio' && <HomeSection transactions={transactions} goals={goalsList} onGoTo={setSection} />}
-          {section === 'transacoes' && (
-            <TransactionsSection
-              transactions={transactions}
-              onAdd={() => {
-                setEditingTransaction(null)
-                setTransactionModalOpen(true)
-              }}
-              onEdit={(transaction) => {
-                setEditingTransaction(transaction)
-                setTransactionModalOpen(true)
-              }}
-              onDelete={async (id) => {
-                await deleteTransaction(id)
-                await refresh()
-              }}
-            />
-          )}
-          {section === 'graficos' && <ChartsSection transactions={transactions} />}
-          {section === 'metas' && (
-            <GoalsSection
-              transactions={transactions}
-              goals={goalsList}
-              limits={limits}
-              onRefresh={refresh}
-              onLimitsChange={setLimits}
-            />
-          )}
-          {section === 'recorrentes' && (
-            <RecurringSection
-              income={recurringIncome}
-              expenses={recurringExpenses}
-              onRefresh={refresh}
-            />
-          )}
-          {section === 'simulador' && <SimulatorSection transactions={transactions} />}
-          {section === 'mais' && <MoreSection user={user} onGoTo={setSection} onLogout={handleLogout} />}
-        </ScrollView>}
-      </View>
-      <KeyboardTabFooter><BottomTabs section={section} onChange={setSection} /></KeyboardTabFooter>
+      <SwipeTabs
+        index={section === 'assistente' ? 0 : section === 'transacoes' ? 1 : section === 'metas' ? 2 : 3}
+        onIndexChange={navigateByTab}
+        footer={<KeyboardTabFooter><BottomTabs section={section} onChange={navigateToSection} /></KeyboardTabFooter>}
+        pages={[
+          <View key="conversation" style={styles.safeArea}>
+            {recurringWarning && <Text accessibilityRole="alert" style={[styles.muted, { paddingHorizontal: 24 }]}>{recurringWarning}</Text>}
+            <AssistantSection transactions={transactions} onGoTo={navigateToSection} onTransactionCreated={refreshTransactions} onEdit={(transaction) => { setEditingTransaction(transaction); setTransactionModalOpen(true) }} />
+          </View>,
+          <ScrollView key="transactions" style={styles.content} nestedScrollEnabled keyboardShouldPersistTaps="handled" contentContainerStyle={styles.contentInner} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={palette.primary} />}>
+            <TransactionsSection transactions={transactions} onAdd={() => { setEditingTransaction(null); setTransactionModalOpen(true) }} onEdit={(transaction) => { setEditingTransaction(transaction); setTransactionModalOpen(true) }} onDelete={async (id) => { await deleteTransaction(id); await refresh() }} />
+          </ScrollView>,
+          <ScrollView key="planning" style={styles.content} nestedScrollEnabled keyboardShouldPersistTaps="handled" contentContainerStyle={styles.contentInner} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={palette.primary} />}>
+            <GoalsSection transactions={transactions} goals={goalsList} limits={limits} onRefresh={refresh} onLimitsChange={setLimits} />
+          </ScrollView>,
+          <View key="profile" style={styles.safeArea}>
+            {['inicio', 'graficos', 'recorrentes', 'simulador'].includes(section) && <Pressable accessibilityRole="button" accessibilityLabel="Voltar para o perfil" onPress={() => navigateToSection('mais')} style={[styles.inline, { minHeight: 44, paddingHorizontal: 24 }]}><FinanceIcon name="back" /><Text style={styles.linkText}>Voltar</Text></Pressable>}
+            <ScrollView style={styles.content} nestedScrollEnabled keyboardShouldPersistTaps="handled" contentContainerStyle={styles.contentInner} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={palette.primary} />}>
+              {section === 'inicio' ? <HomeSection transactions={transactions} goals={goalsList} onGoTo={navigateToSection} /> : section === 'graficos' ? <ChartsSection transactions={transactions} /> : section === 'recorrentes' ? <RecurringSection income={recurringIncome} expenses={recurringExpenses} onRefresh={refresh} /> : section === 'simulador' ? <SimulatorSection transactions={transactions} /> : <MoreSection user={user} onGoTo={navigateToSection} onLogout={handleLogout} />}
+            </ScrollView>
+          </View>,
+        ]}
+      />
       <TransactionModal
         open={transactionModalOpen}
         editing={editingTransaction}
@@ -1026,17 +1001,22 @@ function MoreSection({ user, onGoTo, onLogout }: { user: UserProfile; onGoTo: (s
 
 function BottomTabs({ section, onChange }: { section: Section; onChange: (section: Section) => void }) {
   const selected = ['inicio', 'graficos', 'recorrentes', 'simulador'].includes(section) ? 'mais' : section
+  const selection = usePagerPosition()
+  const [rowWidth, setRowWidth] = useState(0)
+  const cellWidth = Math.max(0, (rowWidth - 8) / tabs.length)
   return (
     <View testID="bottom-tab-footer" style={styles.tabFooter}>
     <View style={styles.bottomTabs}>
-      <View style={styles.bottomTabsInner}>
-        {tabs.map((tab) => {
+      <View style={styles.bottomTabsInner} onLayout={({ nativeEvent }) => setRowWidth(nativeEvent.layout.width)}>
+        {rowWidth > 0 && <Animated.View testID="tab-selection-indicator" pointerEvents="none" style={[styles.tabPill, styles.tabButtonActive, { position: 'absolute', top: 7, left: 4 + (cellWidth - 64) / 2, transform: [{ translateX: Animated.multiply(selection, cellWidth) }] }]} />}
+        {tabs.map((tab, tabIndex) => {
           const active = tab.id === selected
           const destination = tab.id
           return (
-            <Pressable key={tab.id} accessibilityRole="tab" accessibilityLabel={tab.label} accessibilityState={{ selected: active }} style={[styles.tabButton, active && styles.tabButtonActive, tab.id === 'assistente' && styles.aiTab]} onPress={() => onChange(destination)}>
-              <FinanceIcon name={tab.icon} size={21} color={tab.id === 'assistente' ? '#FFFFFF' : active ? palette.primary : palette.muted} />
-              <Text style={[styles.tabLabel, active && styles.tabTextActive, tab.id === 'assistente' && { color: '#FFFFFF' }]}>{tab.label}</Text>
+            <Pressable key={tab.id} accessibilityRole="tab" accessibilityLabel={tab.label} accessibilityState={{ selected: active }} style={({ pressed }) => [styles.tabButton, pressed && { opacity: 0.65 }]} onPress={() => onChange(destination)}>
+              <View style={styles.tabPill}>
+                <View style={{ width: 22, height: 22 }}><FinanceIcon name={tab.icon} size={22} color="#BFC2CC" /><Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, { opacity: selection.interpolate({ inputRange: [tabIndex - 0.8, tabIndex, tabIndex + 0.8], outputRange: [0, 1, 0], extrapolate: 'clamp' }) }]}><FinanceIcon name={tab.icon} size={22} color="#11131A" /></Animated.View></View>
+              </View>
             </Pressable>
           )
         })}
@@ -1124,7 +1104,7 @@ function Segmented({ value, options, onChange }: { value: string; options: { id:
 
 function ChoiceRow({ value, options, onChange }: { value: string; options: { id: string; label: string }[]; onChange: (value: string) => void }) {
   return (
-    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.choiceRow}>
+    <ScrollView horizontal nestedScrollEnabled showsHorizontalScrollIndicator={false} contentContainerStyle={styles.choiceRow}>
       {options.map((option) => {
         const active = value === option.id
         return (
@@ -1286,10 +1266,11 @@ const styles = StyleSheet.create({
   modalCard: { maxHeight: '92%', gap: 16, padding: 24, paddingBottom: 38, borderTopLeftRadius: 32, borderTopRightRadius: 32, backgroundColor: '#141924', borderWidth: 1, borderColor: 'rgba(255,255,255,0.14)' },
   modalActions: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, justifyContent: 'flex-end' },
   tabFooter: { flexShrink: 0, paddingHorizontal: 18, paddingTop: 8, paddingBottom: 12 },
-  bottomTabs: { width: '100%', alignSelf: 'center', maxWidth: 560, borderRadius: 40, backgroundColor: 'rgba(15,19,28,0.98)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)', shadowColor: '#314A70', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.12, shadowRadius: 20, elevation: 8 },
-  bottomTabsInner: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 8, height: 78 },
-  tabButton: { flex: 1, alignItems: 'center', gap: 6, borderRadius: 28, paddingVertical: 12 },
-  tabButtonActive: { backgroundColor: 'rgba(64,93,134,0.06)' },
+  bottomTabs: { width: '100%', alignSelf: 'center', maxWidth: 440 },
+  bottomTabsInner: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 4, height: 56 },
+  tabButton: { flex: 1, minHeight: 52, alignItems: 'center', justifyContent: 'center', borderRadius: 26 },
+  tabPill: { width: 64, height: 42, borderRadius: 24, alignItems: 'center', justifyContent: 'center' },
+  tabButtonActive: { backgroundColor: '#D7D5DF' },
   tabIcon: { color: '#A1A7B3', fontSize: 16, fontWeight: '500' },
   tabLabel: { color: '#A1A7B3', fontSize: 13, fontWeight: '500' },
   tabTextActive: { color: '#6E7CFF' },

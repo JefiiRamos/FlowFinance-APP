@@ -6,7 +6,7 @@ import { useReanimatedKeyboardAnimation } from 'react-native-keyboard-controller
 export function KeyboardTabFooter({ children }: PropsWithChildren) {
   const { progress } = useReanimatedKeyboardAnimation()
   const reducedMotion = useReducedMotion()
-  const [fullHeight, setFullHeight] = useState(100)
+  const [fullHeight, setFullHeight] = useState(76)
   const [hidden, setHidden] = useState(() => Keyboard.isVisible())
   useEffect(() => {
     const show = Keyboard.addListener(Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow', () => setHidden(true))
