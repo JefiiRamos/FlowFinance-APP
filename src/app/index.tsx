@@ -31,7 +31,6 @@ import { WelcomeKeyboardLayout } from '@/components/keyboard-layout'
 import { KeyboardTabFooter } from '@/components/keyboard-tab-footer'
 import { SwipeTabs, usePagerPosition } from '@/components/swipe-tabs'
 import { SharedEmailAnchor } from '@/components/auth-flow-anchors'
-import { MonthlyOverview } from '@/components/monthly-overview'
 import { assistantExamples, useAssistantExample } from '@/components/use-assistant-example'
 
 import {
@@ -83,7 +82,7 @@ type AuthMode = 'login' | 'register'
 
 const tabs: { id: Section; label: string; icon: IconName }[] = [
   { id: 'assistente', label: 'Conversa', icon: 'sparkles' },
-  { id: 'transacoes', label: 'Extrato', icon: 'wallet' },
+  { id: 'transacoes', label: 'Transações', icon: 'wallet' },
   { id: 'inicio', label: 'Dashboard', icon: 'chart' },
   { id: 'mais', label: 'Perfil', icon: 'user' },
 ]
@@ -234,13 +233,13 @@ export default function FlowFinanceApp() {
         pages={[
           <View key="conversation" style={styles.safeArea}>
             {recurringWarning && <Text accessibilityRole="alert" style={[styles.muted, { paddingHorizontal: 24 }]}>{recurringWarning}</Text>}
-            <AssistantSection user={user} bills={recurringExpenses} active={section === 'assistente'} transactions={transactions} onGoTo={navigateToSection} onTransactionCreated={refreshTransactions} onEdit={(transaction) => { setEditingTransaction(transaction); setTransactionModalOpen(true) }} />
+            <AssistantSection active={section === 'assistente'} transactions={transactions} onGoTo={navigateToSection} onTransactionCreated={refreshTransactions} onEdit={(transaction) => { setEditingTransaction(transaction); setTransactionModalOpen(true) }} />
           </View>,
           <ScrollView key="transactions" style={styles.content} nestedScrollEnabled keyboardShouldPersistTaps="handled" contentContainerStyle={styles.contentInner} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={palette.primary} />}>
             <TransactionsSection transactions={transactions} onAdd={() => { setEditingTransaction(null); setTransactionModalOpen(true) }} onEdit={(transaction) => { setEditingTransaction(transaction); setTransactionModalOpen(true) }} onDelete={async (id) => { await deleteTransaction(id); await refresh() }} />
           </ScrollView>,
           <ScrollView key="dashboard" style={styles.content} nestedScrollEnabled keyboardShouldPersistTaps="handled" contentContainerStyle={styles.contentInner} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={palette.primary} />}>
-            <HomeSection transactions={transactions} goals={goalsList} onGoTo={navigateToSection} />
+            <HomeSection user={user} bills={recurringExpenses} transactions={transactions} goals={goalsList} onGoTo={navigateToSection} />
           </ScrollView>,
           <View key="profile" style={styles.safeArea}>
             {['metas', 'graficos', 'recorrentes', 'simulador'].includes(section) && <Pressable accessibilityRole="button" accessibilityLabel="Voltar para o perfil" onPress={() => navigateToSection('mais')} style={[styles.inline, { minHeight: 44, paddingHorizontal: 24 }]}><FinanceIcon name="back" /><Text style={styles.linkText}>Voltar</Text></Pressable>}
@@ -460,7 +459,7 @@ function OnboardingScreen({ user, onComplete }: { user: UserProfile; onComplete:
 }
 
 
-function HomeSection({ transactions, goals, onGoTo }: { transactions: Transaction[]; goals: GoalItem[]; onGoTo: (section: Section) => void }) {
+function HomeSection({ user, bills, transactions, goals, onGoTo }: { user: UserProfile; bills: RecurringExpense[]; transactions: Transaction[]; goals: GoalItem[]; onGoTo: (section: Section) => void }) {
   const { width } = useWindowDimensions()
   const now = new Date()
   const year = now.getFullYear()
@@ -513,6 +512,12 @@ function HomeSection({ transactions, goals, onGoTo }: { transactions: Transactio
           {balanceVisible && <View style={styles.categoryTrack}><View style={[styles.categoryFill, { width: (monthlyExpenses > 0 ? item.amount / monthlyExpenses * 100 + '%' : '0%') as DimensionValue }]} /></View>}
         </View>)}
       </View>
+      <View style={styles.panel}>
+        <Text style={styles.cardTitle}>Planejamento do mês</Text>
+        <View style={styles.rowBetween}><Text style={styles.muted}>Renda planejada</Text><Text style={styles.bodyText}>{user.monthlyIncomeTarget ? (balanceVisible ? formatCurrency(user.monthlyIncomeTarget) : '•••••') : 'Não informada'}</Text></View>
+        {!!user.payDay && <Text style={styles.muted}>Recebimento previsto: dia {user.payDay}</Text>}
+        <Pressable accessibilityRole="button" accessibilityLabel="Gerenciar contas fixas" onPress={() => onGoTo('recorrentes')} style={styles.rowBetween}><Text style={styles.muted}>Contas fixas cadastradas · {bills.length}</Text><Text style={styles.linkText}>{balanceVisible ? formatCurrency(bills.reduce((total, bill) => total + bill.amount, 0)) : '•••••'}</Text></Pressable>
+      </View>
       <Text style={styles.cardTitle}>Ações rápidas</Text>
       <View style={styles.quickActions}>
         {quickActions.map((action) => <Pressable key={action.section} accessibilityRole="button" style={styles.quickAction} onPress={() => onGoTo(action.section)}><View style={styles.quickActionCircle}><FinanceIcon name={action.icon} /></View><Text style={styles.quickActionLabel}>{action.label}</Text></Pressable>)}
@@ -539,12 +544,7 @@ function HomeSection({ transactions, goals, onGoTo }: { transactions: Transactio
   )
 }
 
-function TransactionsSection({
-  transactions,
-  onAdd,
-  onEdit,
-  onDelete,
-}: {
+function TransactionsSection({ transactions, onAdd, onEdit, onDelete }: {
   transactions: Transaction[]
   onAdd: () => void
   onEdit: (transaction: Transaction) => void
@@ -553,50 +553,67 @@ function TransactionsSection({
   const [filter, setFilter] = useState<'all' | TransactionType>('all')
   const [search, setSearch] = useState('')
   const [period, setPeriod] = useState('month')
+  const [valuesVisible, setValuesVisible] = useState(true)
   const [deleting, setDeleting] = useState<string | null>(null)
+  const monthKey = todayIso().slice(0, 7)
+  const periodTransactions = transactions.filter(item => period === 'all' || item.date.slice(0, 7) === monthKey)
+  const income = getTotalIncome(periodTransactions)
+  const expenses = getTotalExpenses(periodTransactions)
+  const money = (value: number) => valuesVisible ? formatCurrency(value) : '•••••'
+  const query = search.trim().toLocaleLowerCase('pt-BR')
+  const filtered = periodTransactions
+    .filter(item => (item.description + ' ' + labelForCategory(item.category)).toLocaleLowerCase('pt-BR').includes(query))
+    .filter(item => filter === 'all' || item.type === filter)
+    .sort((a, b) => b.date.localeCompare(a.date))
+  const groups = new Map<string, Transaction[]>()
+  for (const item of filtered) {
+    const day = item.date.slice(0, 10)
+    const rows = groups.get(day) ?? []
+    rows.push(item)
+    groups.set(day, rows)
+  }
+  const dayLabel = (day: string) => day === todayIso() ? 'Hoje' : new Intl.DateTimeFormat('pt-BR', { day: 'numeric', month: 'long', year: 'numeric' }).format(new Date(day + 'T12:00:00'))
   async function remove(id: string) {
     setDeleting(id)
     try { await onDelete(id) } catch (error) { Alert.alert('Erro', error instanceof Error ? error.message : 'Não foi possível excluir.') } finally { setDeleting(null) }
   }
-  const filtered = (period === 'month' ? currentMonthTransactions(transactions) : transactions)
-    .filter((item) => `${item.description} ${labelForCategory(item.category)}`.toLocaleLowerCase('pt-BR').includes(search.toLocaleLowerCase('pt-BR')))
-    .filter((item) => filter === 'all' || item.type === filter)
-    .sort((a, b) => +new Date(b.date) - +new Date(a.date))
 
-  return (
-    <View style={styles.stack}>
-      <View style={styles.rowBetween}>
-        <Text style={styles.title}>Transações</Text>
-        <PrimaryButton label="Nova" onPress={onAdd} compact />
-      </View>
-      <Field label="Buscar transações" value={search} onChangeText={setSearch} placeholder="Descrição ou categoria" />
-      <Segmented value={period} options={[{ id: 'month', label: 'Este mês' }, { id: 'all', label: 'Todo o histórico' }]} onChange={setPeriod} />
-      <Segmented
-        value={filter}
-        options={[
-          { id: 'all', label: 'Todas' },
-          { id: 'income', label: 'Receitas' },
-          { id: 'expense', label: 'Gastos' },
-        ]}
-        onChange={(value) => setFilter(value as 'all' | TransactionType)}
-      />
-      <View style={styles.panel}>
-        {filtered.length === 0 ? (
-          <EmptyText text="Nenhuma transacao nesse filtro." />
-        ) : (
-          filtered.map((item) => (
-            <View key={item.id}>
-              <TransactionRow item={item} />
-              <View style={styles.modalActions}>
-                <SecondaryButton label="Editar" onPress={() => onEdit(item)} />
-                <Pressable accessibilityRole="button" disabled={deleting !== null} style={styles.secondaryButton} onPress={() => Alert.alert('Excluir transação?', `${item.description} · ${formatCurrency(item.amount)}`, [{ text: 'Cancelar', style: 'cancel' }, { text: 'Excluir', style: 'destructive', onPress: () => void remove(item.id) }])}><Text style={styles.badText}>{deleting === item.id ? 'Excluindo...' : 'Excluir'}</Text></Pressable>
-              </View>
-            </View>
-          ))
-        )}
-      </View>
+  return <View style={styles.stack}>
+    <View style={styles.rowBetween}>
+      <View style={{ flex: 1, gap: 6 }}><Text accessibilityRole="header" style={styles.title}>Transações</Text><Text style={styles.muted}>Cada movimento, tudo no seu controle.</Text></View>
+      <Pressable accessibilityRole="button" accessibilityLabel="Adicionar transação" onPress={onAdd} style={styles.statementAdd}><FinanceIcon name="plus" size={22} color="#FFFFFF" /></Pressable>
     </View>
-  )
+    <View style={{ gap: 12 }}>
+      <Segmented value={period} options={[{ id: 'month', label: 'Este mês' }, { id: 'all', label: 'Todo o histórico' }]} onChange={setPeriod} />
+      <View style={styles.statementCompactTotals}>
+        <View style={styles.statementMetric}><Text style={styles.statementCaption}>Entradas do período</Text><Text numberOfLines={1} adjustsFontSizeToFit style={[styles.statementCompactValue, { color: palette.success }]}>{money(income)}</Text></View>
+        <View style={styles.statementMetric}><Text style={styles.statementCaption}>Saídas do período</Text><Text numberOfLines={1} adjustsFontSizeToFit style={styles.statementCompactValue}>{money(expenses)}</Text></View>
+        <Pressable accessibilityRole="button" accessibilityLabel={valuesVisible ? 'Ocultar valores' : 'Mostrar valores'} onPress={() => setValuesVisible(value => !value)} style={styles.eyeButton}><FinanceIcon name={valuesVisible ? 'eye-off' : 'eye'} size={18} color={palette.muted} /></Pressable>
+      </View>
+      <View style={styles.statementSearch}><FinanceIcon name="wallet" size={19} color={palette.muted} /><TextInput accessibilityLabel="Buscar transações por descrição ou categoria" value={search} onChangeText={setSearch} placeholder="Buscar descrição ou categoria" placeholderTextColor={palette.muted} style={styles.statementSearchInput} autoCorrect={false} /></View>
+      <View style={styles.statementFilters}>{([{ id: 'all', label: 'Todas' }, { id: 'income', label: 'Entradas' }, { id: 'expense', label: 'Saídas' }] as const).map(option => <Pressable key={option.id} accessibilityRole="button" accessibilityState={{ selected: filter === option.id }} onPress={() => setFilter(option.id)} style={[styles.statementFilter, filter === option.id && styles.statementFilterActive]}><Text style={[styles.statementFilterText, filter === option.id && { color: '#FFFFFF' }]}>{option.label}</Text></Pressable>)}</View>
+    </View>
+    <View style={styles.rowBetween}><Text style={styles.cardTitle}>Movimentações</Text><Text style={styles.muted}>{filtered.length} {filtered.length === 1 ? 'lançamento' : 'lançamentos'}</Text></View>
+    {filtered.length === 0 ? <View style={[styles.statementCard, { alignItems: 'center', paddingVertical: 28 }]}>
+      <View style={styles.chatEmblem}><FinanceIcon name="wallet" size={26} /></View>
+      <Text style={styles.cardTitle}>{periodTransactions.length === 0 ? 'Seu extrato começa aqui' : 'Nenhum resultado encontrado'}</Text>
+      <Text style={styles.chatSubtitle}>{periodTransactions.length === 0 ? 'Registre uma receita ou um gasto para acompanhar seus movimentos.' : 'Tente outra busca ou ajuste os filtros para encontrar um lançamento.'}</Text>
+      {periodTransactions.length === 0 ? <SecondaryButton label="Adicionar lançamento" onPress={onAdd} /> : <SecondaryButton label="Limpar filtros" onPress={() => { setSearch(''); setFilter('all') }} />}
+    </View> : [...groups].map(([day, items]) => <View key={day} style={{ gap: 10 }}>
+      <Text style={styles.statementDay}>{dayLabel(day)}</Text>
+      <View style={styles.statementGroup}>{items.map((item, index) => <View key={item.id} style={[styles.statementEntry, index > 0 && styles.statementEntryDivider]}>
+        <View style={styles.statementEntryHeading}>
+          <View style={[styles.transactionCategory, { backgroundColor: item.type === 'income' ? 'rgba(74,222,128,0.09)' : 'rgba(110,124,255,0.10)' }]}><FinanceIcon name={item.type === 'income' ? 'arrow' : 'wallet'} size={19} color={item.type === 'income' ? palette.success : palette.primary} /></View>
+          <View style={styles.transactionInfo}><Text style={styles.bodyText}>{item.description || 'Sem descrição'}</Text><Text style={styles.statementCaption}>{labelForCategory(item.category)}{item.paymentMethod ? ' · ' + item.paymentMethod : ''}</Text></View>
+          <Text style={[styles.statementAmount, item.type === 'income' && { color: palette.success }]}>{valuesVisible ? (item.type === 'income' ? '+ ' : '− ') + formatCurrency(item.amount) : '•••••'}</Text>
+        </View>
+        <View style={styles.statementEntryActions}>
+          <Pressable accessibilityRole="button" accessibilityLabel={'Editar ' + item.description} onPress={() => onEdit(item)} style={styles.statementAction}><Text style={styles.linkText}>Editar</Text></Pressable>
+          <Pressable accessibilityRole="button" accessibilityLabel={'Excluir ' + item.description} disabled={deleting !== null} style={[styles.statementAction, deleting !== null && styles.disabled]} onPress={() => Alert.alert('Excluir transação?', item.description + ' · ' + money(item.amount), [{ text: 'Cancelar', style: 'cancel' }, { text: 'Excluir', style: 'destructive', onPress: () => void remove(item.id) }])}><Text style={styles.muted}>{deleting === item.id ? 'Excluindo...' : 'Excluir'}</Text></Pressable>
+        </View>
+      </View>)}</View>
+    </View>)}
+  </View>
 }
 
 function ChartsSection({ transactions }: { transactions: Transaction[] }) {
@@ -798,9 +815,8 @@ function SimulatorSection({ transactions }: { transactions: Transaction[] }) {
   )
 }
 
-function AssistantSection({ user, bills, active, transactions, onGoTo, onTransactionCreated, onEdit }: { user: UserProfile; bills: RecurringExpense[]; active: boolean; transactions: Transaction[]; onGoTo: (section: Section) => void; onTransactionCreated: () => Promise<void>; onEdit: (transaction: Transaction) => void }) {
+function AssistantSection({ active, transactions, onGoTo, onTransactionCreated, onEdit }: { active: boolean; transactions: Transaction[]; onGoTo: (section: Section) => void; onTransactionCreated: () => Promise<void>; onEdit: (transaction: Transaction) => void }) {
   const composer = useRef<TextInput>(null)
-  const [valuesVisible, setValuesVisible] = useState(true)
   const { height } = useWindowDimensions()
   const compact = (Platform.OS === 'android' ? Dimensions.get('screen').height : height) < 680
   const now = new Date()
@@ -830,7 +846,7 @@ function AssistantSection({ user, bills, active, transactions, onGoTo, onTransac
     const expenses = getTotalExpenses(month)
     const reply = month.length === 0
       ? 'Ainda não há lançamentos neste mês. Conte uma receita ou um gasto para começarmos.'
-      : `Seu mês até agora:\n\nReceitas: ${formatCurrency(income)}\nGastos: ${formatCurrency(expenses)}\nResultado do mês: ${formatCurrency(income - expenses)}\n\nVocê pode conferir cada lançamento no Extrato.`
+      : `Seu mês até agora:\n\nReceitas: ${formatCurrency(income)}\nGastos: ${formatCurrency(expenses)}\nResultado do mês: ${formatCurrency(income - expenses)}\n\nVocê pode conferir cada lançamento em Transações.`
     setMessages(previous => [...previous, { role: 'user', content: 'Como está meu mês?' }, { role: 'assistant', content: reply }])
     setError(null)
   }
@@ -875,7 +891,10 @@ function AssistantSection({ user, bills, active, transactions, onGoTo, onTransac
     <WelcomeKeyboardLayout>
     <View style={styles.chatScreen}>
       <ScrollView style={styles.chatMessages} ref={conversation} keyboardShouldPersistTaps="handled" contentContainerStyle={[styles.conversation, compact && { paddingVertical: 12 }]} onLayout={({ nativeEvent }) => { if (messages.length > 0 && nativeEvent.layout.height > 0) conversation.current?.scrollToEnd({ animated: true }) }} onContentSizeChange={() => { if (messages.length > 0) conversation.current?.scrollToEnd({ animated: true }) }}>
-        <MonthlyOverview transactions={transactions} user={user} bills={bills} visible={valuesVisible} onToggle={() => setValuesVisible(value => !value)} onStatement={() => onGoTo('transacoes')} onBills={() => onGoTo('recorrentes')} />
+        <View style={styles.conversationContext}>
+          <View style={{ flex: 1, gap: 4 }}><Text style={styles.statementEyebrow}>CONVERSA</Text><Text style={styles.muted}>{monthTransactions.length === 0 ? 'Vamos registrar seu primeiro movimento do mês?' : monthTransactions.length + (monthTransactions.length === 1 ? ' lançamento registrado neste mês' : ' lançamentos registrados neste mês')}</Text></View>
+          <Pressable accessibilityRole="button" accessibilityLabel="Acompanhar minhas finanças no Dashboard" onPress={() => onGoTo('inicio')} style={styles.contextLink}><Text style={styles.linkText}>Dashboard</Text><FinanceIcon name="arrow" size={14} /></Pressable>
+        </View>
         {messages.length === 0 && <View style={[styles.chatIntro, compact && { paddingTop: 0, paddingBottom: 8, gap: 8 }]}>
           <View style={styles.inline}><FinanceIcon name="sparkles" size={20} /><Text style={styles.cardTitle}>Seu assistente financeiro</Text></View>
           <Text accessibilityRole="header" style={[styles.title, { textAlign: 'center', fontSize: compact ? 20 : 25, lineHeight: compact ? 26 : 32 }]}>O que vamos lançar hoje?</Text>
@@ -999,14 +1018,14 @@ function TransactionModal({
 
 function MoreSection({ user, onGoTo, onLogout }: { user: UserProfile; onGoTo: (section: Section) => void; onLogout: () => void }) {
   const entries: { id: Section; title: string; description: string; icon: IconName }[] = [
-    { id: 'inicio', title: 'Dashboard', description: 'Veja seu saldo, projeções e movimentações', icon: 'chart' },
     { id: 'metas', title: 'Metas e orçamento', description: 'Planeje seus objetivos e limites de gastos', icon: 'target' },
-    { id: 'graficos', title: 'Gráficos e relatórios', description: 'Entenda para onde vai seu dinheiro', icon: 'chart' },
     { id: 'recorrentes', title: 'Receitas e contas fixas', description: 'Organize o que se repete todo mês', icon: 'repeat' },
-    { id: 'simulador', title: 'Simulador de cenários', description: 'Veja como suas escolhas mudam o futuro', icon: 'sparkles' },
   ]
   return <View style={styles.stack}>
-    <View style={styles.panel}><Text style={styles.title}>Tudo no seu ritmo.</Text><Text style={styles.muted}>{user.email}</Text></View>
+    <View style={{ gap: 6 }}><Text accessibilityRole="header" style={styles.title}>Perfil</Text><Text style={styles.muted}>Sua conta e suas preferências financeiras.</Text></View>
+    <View style={styles.panel}><View style={styles.inline}><View style={styles.quickActionCircle}><FinanceIcon name="user" /></View><View style={{ flex: 1, gap: 4 }}><Text style={styles.cardTitle}>{user.name?.trim() || 'Sua conta'}</Text><Text selectable style={styles.muted}>{user.email}</Text></View></View></View>
+    <View style={styles.panel}><Text style={styles.cardTitle}>Preferências financeiras</Text><View style={styles.rowBetween}><Text style={styles.muted}>Seu perfil</Text><Text style={styles.bodyText}>{profiles.find(profile => profile.id === user.financialProfile)?.label ?? 'Não informado'}</Text></View><View style={styles.rowBetween}><Text style={styles.muted}>Objetivo principal</Text><Text style={[styles.bodyText, { flexShrink: 1, textAlign: 'right' }]}>{goals.find(goal => goal.id === user.primaryGoal)?.label ?? 'Não informado'}</Text></View></View>
+    <Text style={styles.cardTitle}>Gerenciar planejamento</Text>
     <View style={styles.panel}>{entries.map((entry) => <Pressable key={entry.id} accessibilityRole="button" style={styles.moreRow} onPress={() => onGoTo(entry.id)}><View style={styles.quickActionCircle}><FinanceIcon name={entry.icon} /></View><View style={styles.headerCopy}><Text style={styles.cardTitle}>{entry.title}</Text><Text style={styles.muted}>{entry.description}</Text></View><FinanceIcon name="arrow" size={18} /></Pressable>)}</View>
     <Pressable accessibilityRole="button" style={styles.signOut} onPress={onLogout}><FinanceIcon name="logout" size={19} /><Text style={styles.linkText}>Sair da conta</Text></Pressable>
   </View>
@@ -1030,6 +1049,7 @@ function BottomTabs({ section, onChange }: { section: Section; onChange: (sectio
               <View style={styles.tabPill}>
                 <View style={{ width: 22, height: 22 }}><FinanceIcon name={tab.icon} size={22} color="#BFC2CC" /><Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, { opacity: selection.interpolate({ inputRange: [tabIndex - 0.8, tabIndex, tabIndex + 0.8], outputRange: [0, 1, 0], extrapolate: 'clamp' }) }]}><FinanceIcon name={tab.icon} size={22} color="#11131A" /></Animated.View></View>
               </View>
+              <Text maxFontSizeMultiplier={1.2} numberOfLines={1} style={[styles.tabLabel, active && styles.tabTextActive]}>{tab.label}</Text>
             </Pressable>
           )
         })}
@@ -1162,6 +1182,29 @@ const styles = StyleSheet.create({
   avatar: { width: 46, height: 46, borderRadius: 23, backgroundColor: '#141924', alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: 'rgba(255,255,255,0.06)' },
   avatarText: { color: '#6E7CFF', fontSize: 20, fontWeight: '500' },
   roundButton: { width: 44, height: 44, borderRadius: 22, backgroundColor: 'rgba(255,255,255,0.06)', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)' },
+  conversationContext: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingBottom: 16, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.08)' },
+  contextLink: { flexDirection: 'row', alignItems: 'center', gap: 5, minHeight: 44 },
+  statementCompactTotals: { flexDirection: 'row', alignItems: 'center', gap: 14, paddingHorizontal: 4, paddingVertical: 2 },
+  statementCompactValue: { color: '#E3E6EF', fontSize: 16, fontWeight: '500' },
+  statementCard: { padding: 20, gap: 16, borderRadius: 26, borderWidth: 1, borderColor: 'rgba(110,124,255,0.22)', backgroundColor: '#141924' },
+  statementAdd: { width: 48, height: 48, borderRadius: 24, alignItems: 'center', justifyContent: 'center', backgroundColor: '#6E7CFF' },
+  statementEyebrow: { color: '#6E7CFF', fontSize: 10, fontWeight: '600', letterSpacing: 1.6 },
+  statementMetric: { flex: 1, gap: 8 },
+  statementCaption: { color: '#A1A7B3', fontSize: 11, lineHeight: 17 },
+  statementSearch: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 16, borderRadius: 22, backgroundColor: '#141924', borderWidth: 1, borderColor: 'rgba(255,255,255,0.10)' },
+  statementSearchInput: { flex: 1, minWidth: 0, minHeight: 52, paddingVertical: 12, color: '#FFFFFF', fontSize: 14 },
+  statementFilters: { flexDirection: 'row', gap: 8 },
+  statementFilter: { flex: 1, minHeight: 44, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 10, borderRadius: 22, borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)', backgroundColor: '#141924' },
+  statementFilterActive: { borderColor: '#6E7CFF', backgroundColor: 'rgba(110,124,255,0.18)' },
+  statementFilterText: { color: '#A1A7B3', fontSize: 13, fontWeight: '500' },
+  statementDay: { color: '#A1A7B3', fontSize: 12, fontWeight: '500', paddingHorizontal: 4, textTransform: 'capitalize' },
+  statementGroup: { borderRadius: 24, paddingHorizontal: 16, borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)', backgroundColor: '#141924' },
+  statementEntry: { paddingTop: 16, paddingBottom: 4, gap: 4 },
+  statementEntryDivider: { borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.08)' },
+  statementEntryHeading: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 10 },
+  statementAmount: { color: '#E3E6EF', fontSize: 13, fontWeight: '500', flexShrink: 1 },
+  statementEntryActions: { flexDirection: 'row', justifyContent: 'flex-end', gap: 4 },
+  statementAction: { minHeight: 44, minWidth: 60, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 10 },
   balanceCard: { ...authVisuals.card, gap: 26, padding: 22 },
   balanceArrow: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: '#6E7CFF' },
   balanceValue: { flexShrink: 1, color: '#FFFFFF', fontSize: 37, fontWeight: '500', letterSpacing: -0.8 },
@@ -1280,12 +1323,12 @@ const styles = StyleSheet.create({
   modalActions: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, justifyContent: 'flex-end' },
   tabFooter: { flexShrink: 0, paddingHorizontal: 18, paddingTop: 8, paddingBottom: 12 },
   bottomTabs: { width: '100%', alignSelf: 'center', maxWidth: 440 },
-  bottomTabsInner: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 4, height: 56 },
-  tabButton: { flex: 1, minHeight: 52, alignItems: 'center', justifyContent: 'center', borderRadius: 26 },
+  bottomTabsInner: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 4, height: 74 },
+  tabButton: { flex: 1, minHeight: 74, gap: 4, alignItems: 'center', justifyContent: 'center', borderRadius: 26 },
   tabPill: { width: 64, height: 42, borderRadius: 24, alignItems: 'center', justifyContent: 'center' },
   tabButtonActive: { backgroundColor: '#D7D5DF' },
   tabIcon: { color: '#A1A7B3', fontSize: 16, fontWeight: '500' },
-  tabLabel: { color: '#A1A7B3', fontSize: 13, fontWeight: '500' },
+  tabLabel: { color: '#A1A7B3', fontSize: 11, lineHeight: 14, fontWeight: '500' },
   tabTextActive: { color: '#6E7CFF' },
   fab: { position: 'absolute', right: 18, bottom: 86, width: 58, height: 58, borderRadius: 29, alignItems: 'center', justifyContent: 'center', backgroundColor: '#6E7CFF' },
   fabText: { color: '#fff', fontSize: 34, lineHeight: 38, fontWeight: '500' },
