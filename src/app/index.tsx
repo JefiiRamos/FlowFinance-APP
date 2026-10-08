@@ -30,6 +30,8 @@ import { WelcomeKeyboardLayout } from '@/components/keyboard-layout'
 import { KeyboardTabFooter } from '@/components/keyboard-tab-footer'
 import { SwipeTabs, usePagerPosition } from '@/components/swipe-tabs'
 import { SharedEmailAnchor } from '@/components/auth-flow-anchors'
+import { MonthlyOverview } from '@/components/monthly-overview'
+import { assistantExamples, useAssistantExample } from '@/components/use-assistant-example'
 
 import {
   ApiError,
@@ -231,7 +233,7 @@ export default function FlowFinanceApp() {
         pages={[
           <View key="conversation" style={styles.safeArea}>
             {recurringWarning && <Text accessibilityRole="alert" style={[styles.muted, { paddingHorizontal: 24 }]}>{recurringWarning}</Text>}
-            <AssistantSection transactions={transactions} onGoTo={navigateToSection} onTransactionCreated={refreshTransactions} onEdit={(transaction) => { setEditingTransaction(transaction); setTransactionModalOpen(true) }} />
+            <AssistantSection user={user} bills={recurringExpenses} active={section === 'assistente'} transactions={transactions} onGoTo={navigateToSection} onTransactionCreated={refreshTransactions} onEdit={(transaction) => { setEditingTransaction(transaction); setTransactionModalOpen(true) }} />
           </View>,
           <ScrollView key="transactions" style={styles.content} nestedScrollEnabled keyboardShouldPersistTaps="handled" contentContainerStyle={styles.contentInner} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={palette.primary} />}>
             <TransactionsSection transactions={transactions} onAdd={() => { setEditingTransaction(null); setTransactionModalOpen(true) }} onEdit={(transaction) => { setEditingTransaction(transaction); setTransactionModalOpen(true) }} onDelete={async (id) => { await deleteTransaction(id); await refresh() }} />
@@ -786,26 +788,23 @@ function SimulatorSection({ transactions }: { transactions: Transaction[] }) {
   )
 }
 
-function AssistantSection({ transactions, onGoTo, onTransactionCreated, onEdit }: { transactions: Transaction[]; onGoTo: (section: Section) => void; onTransactionCreated: () => Promise<void>; onEdit: (transaction: Transaction) => void }) {
+function AssistantSection({ user, bills, active, transactions, onGoTo, onTransactionCreated, onEdit }: { user: UserProfile; bills: RecurringExpense[]; active: boolean; transactions: Transaction[]; onGoTo: (section: Section) => void; onTransactionCreated: () => Promise<void>; onEdit: (transaction: Transaction) => void }) {
   const composer = useRef<TextInput>(null)
   const [valuesVisible, setValuesVisible] = useState(true)
-  const { width, height } = useWindowDimensions()
+  const { height } = useWindowDimensions()
   const compact = (Platform.OS === 'android' ? Dimensions.get('screen').height : height) < 680
   const now = new Date()
   const year = now.getFullYear()
   const month = now.getMonth()
   const monthTransactions = useMemo(() => currentMonthTransactions(transactions, new Date(year, month, 1)), [transactions, year, month])
-  const balance = useMemo(() => getBalance(transactions), [transactions])
-  const monthExpenses = useMemo(() => getTotalExpenses(monthTransactions), [monthTransactions])
-  const balanceText = useMemo(() => formatCurrency(balance), [balance])
-  const expenseText = useMemo(() => formatCurrency(monthExpenses), [monthExpenses])
-  const summaryFontSize = Math.max(9, Math.min(22, (Math.min(width * 0.9, 560) - 101) / 2 / (Math.max(balanceText.length, expenseText.length) * 0.66)))
   const [createdTransaction, setCreatedTransaction] = useState<Transaction | null>(null)
   const conversation = useRef<ScrollView>(null)
   const [error, setError] = useState<string | null>(null)
   const [messages, setMessages] = useState<{ role: 'user' | 'assistant'; content: string }[]>([])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
+  const [focused, setFocused] = useState(false)
+  const example = useAssistantExample(active && !focused && !input && !loading)
 
   const messageBubbles = useMemo(() => messages.map((message, index) => (
           <View key={`${message.role}-${index}`} style={[styles.chatBubble, message.role === 'user' ? styles.userBubble : styles.assistantBubble]}>
@@ -851,20 +850,31 @@ function AssistantSection({ transactions, onGoTo, onTransactionCreated, onEdit }
     }
   }
 
+  const composerField = (
+      <View style={[styles.composerArea, messages.length === 0 && { paddingHorizontal: 0, paddingTop: 0 }]}>
+        {error && <Text accessibilityRole="alert" style={styles.badText}>{error}</Text>}
+        <View style={styles.composer}>
+          <TextInput ref={composer} accessibilityLabel="Mensagem para o assistente" multiline value={input} onChangeText={setInput} onFocus={() => setFocused(true)} onBlur={() => setFocused(false)} placeholder={focused ? "Conte uma receita ou um gasto..." : example} placeholderTextColor={palette.muted} style={styles.composerInput} />
+          <Pressable accessibilityRole="button" accessibilityLabel="Enviar mensagem" disabled={loading || !input.trim()} onPress={() => void send()} style={[styles.sendButton, (loading || !input.trim()) && styles.disabled]}><FinanceIcon name="send" size={20} color="#FFFFFF" /></Pressable>
+        </View>
+        <Text style={styles.helper}>Você conversa. O Flow organiza.</Text>
+      </View>
+  )
+
   return (
     <WelcomeKeyboardLayout>
     <View style={styles.chatScreen}>
-      <View style={styles.chatSummary}>
-        <Pressable accessibilityRole="button" accessibilityLabel="Ver visão geral do saldo" onPress={() => onGoTo('inicio')} style={{ flex: 1, gap: 5 }}><Text style={[styles.muted, compact && { fontSize: 11, lineHeight: 16, minHeight: 32 }]}>Seu saldo disponível</Text><Text numberOfLines={1} style={[styles.summaryValue, { fontSize: summaryFontSize }]}>{valuesVisible ? balanceText : '•••••'}</Text></Pressable>
-        <View style={styles.summaryDivider} />
-        <Pressable accessibilityRole="button" accessibilityLabel="Ver gastos no extrato" onPress={() => onGoTo('transacoes')} style={{ flex: 1, gap: 5 }}><Text style={[styles.muted, compact && { fontSize: 11, lineHeight: 16, minHeight: 32 }]}>Gastos do mês</Text><Text numberOfLines={1} style={[styles.summaryValue, { fontSize: summaryFontSize }]}>{valuesVisible ? expenseText : '•••••'}</Text></Pressable>
-        <Pressable accessibilityRole="button" accessibilityLabel={valuesVisible ? 'Ocultar valores' : 'Mostrar valores'} onPress={() => setValuesVisible(value => !value)} style={{ minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' }}><FinanceIcon name={valuesVisible ? 'eye-off' : 'eye'} size={18} color={palette.muted} /></Pressable>
-      </View>
       <ScrollView style={styles.chatMessages} ref={conversation} keyboardShouldPersistTaps="handled" contentContainerStyle={[styles.conversation, compact && { paddingVertical: 12 }]} onLayout={({ nativeEvent }) => { if (messages.length > 0 && nativeEvent.layout.height > 0) conversation.current?.scrollToEnd({ animated: true }) }} onContentSizeChange={() => { if (messages.length > 0) conversation.current?.scrollToEnd({ animated: true }) }}>
+        <MonthlyOverview transactions={transactions} user={user} bills={bills} visible={valuesVisible} onToggle={() => setValuesVisible(value => !value)} onStatement={() => onGoTo('transacoes')} onBills={() => onGoTo('recorrentes')} />
         {messages.length === 0 && <View style={[styles.chatIntro, compact && { paddingTop: 0, paddingBottom: 8, gap: 8 }]}>
-          {!compact && <View style={styles.chatEmblem}><FinanceIcon name="sparkles" size={24} /></View>}
-          <Text accessibilityRole="header" style={[styles.title, { textAlign: 'center', fontSize: compact ? 20 : 25, lineHeight: compact ? 26 : 32 }]}>O que vamos organizar hoje?</Text>
-          {!compact && <Text style={styles.chatSubtitle}>Um gasto, um resumo ou o próximo objetivo. Vamos por partes.</Text>}
+          <View style={styles.inline}><FinanceIcon name="sparkles" size={20} /><Text style={styles.cardTitle}>Seu assistente financeiro</Text></View>
+          <Text accessibilityRole="header" style={[styles.title, { textAlign: 'center', fontSize: compact ? 20 : 25, lineHeight: compact ? 26 : 32 }]}>O que vamos lançar hoje?</Text>
+          <Text style={styles.chatSubtitle}>Conte do seu jeito. A IA registra e organiza para você.</Text>
+          {composerField}
+          <View style={{ gap: 8, width: '100%' }}>
+            <Text style={styles.muted}>Experimente um lançamento</Text>
+            {assistantExamples.slice(0, 3).map(text => <Pressable key={text} accessibilityRole="button" accessibilityLabel={'Usar exemplo: ' + text} onPress={() => { setInput(text); composer.current?.focus() }} style={styles.suggestion}><Text style={[styles.suggestionText, { color: palette.muted }]}>{text}</Text><FinanceIcon name="plus" size={16} /></Pressable>)}
+          </View>
           <View style={styles.chatShortcuts}>
             <Pressable accessibilityRole="button" accessibilityLabel="Registrar gasto" disabled={loading} onPress={() => { setInput('Gastei R$ '); composer.current?.focus() }} style={styles.chatShortcut}><FinanceIcon name="plus" size={20} /><Text style={styles.chatShortcutText}>Registrar gasto</Text></Pressable>
             <Pressable accessibilityRole="button" accessibilityLabel="Entender meu mês" disabled={loading} onPress={summarizeMonth} style={styles.chatShortcut}><FinanceIcon name="chart" size={20} /><Text style={styles.chatShortcutText}>Entender meu mês</Text></Pressable>
@@ -880,14 +890,7 @@ function AssistantSection({ transactions, onGoTo, onTransactionCreated, onEdit }
           <SecondaryButton label="Fechar confirmação" onPress={() => setCreatedTransaction(null)} />
         </View>}
       </ScrollView>
-      <View style={styles.composerArea}>
-        {error && <Text accessibilityRole="alert" style={styles.badText}>{error}</Text>}
-        <View style={styles.composer}>
-          <TextInput ref={composer} accessibilityLabel="Mensagem para o assistente" multiline value={input} onChangeText={setInput} placeholder="Conte um gasto ou pergunte sobre seu mês..." placeholderTextColor={palette.muted} style={styles.composerInput} />
-          <Pressable accessibilityRole="button" accessibilityLabel="Enviar mensagem" disabled={loading || !input.trim()} onPress={() => void send()} style={[styles.sendButton, (loading || !input.trim()) && styles.disabled]}><FinanceIcon name="send" size={20} color="#FFFFFF" /></Pressable>
-        </View>
-        <Text style={styles.helper}>Você conversa. O Flow organiza.</Text>
-      </View>
+      {messages.length > 0 && composerField}
     </View>
     </WelcomeKeyboardLayout>
   )
