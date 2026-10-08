@@ -14,3 +14,14 @@ for (const [input, expected] of [
   ['abc', 0], ['1,2,3', 0], ['Infinity', 0], ['0.001', 0],
 ]) assert.equal(parseMoney(input), expected, input)
 console.log('Currency checks passed: decimal API values, Brazilian format, cents and invalid inputs.')
+
+const { parseTransactionDateInput, transactionDateToInput } = exportsObject
+for (const [input, expected] of [
+  ['07/10/2026', '2026-10-07'], ['29/02/2024', '2024-02-29'],
+  ['29/02/2026', null], ['31/02/2026', null], ['31/04/2026', null],
+  ['00/10/2026', null], ['07/13/2026', null], ['', null],
+  ['2026-10-07', null], ['7/10/2026', null],
+]) assert.equal(parseTransactionDateInput(input), expected, input)
+assert.equal(transactionDateToInput('2026-10-07T00:00:00.000Z'), '07/10/2026')
+assert.equal(parseTransactionDateInput(transactionDateToInput('2024-02-29')), '2024-02-29')
+console.log('Transaction date checks passed: Brazilian input, leap years, invalid calendar dates and editing round trips.')

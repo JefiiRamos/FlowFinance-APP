@@ -32,6 +32,7 @@ import { KeyboardTabFooter } from '@/components/keyboard-tab-footer'
 import { SwipeTabs, usePagerPosition } from '@/components/swipe-tabs'
 import { SharedEmailAnchor } from '@/components/auth-flow-anchors'
 import { assistantExamples, useAssistantExample } from '@/components/use-assistant-example'
+import { AnimatedChoiceTabs, SoftTransition } from '@/components/transaction-motion'
 
 import {
   ApiError,
@@ -72,6 +73,8 @@ import {
   getTotalIncome,
   monthlyProjections,
   parseMoney as moneyToNumber,
+  parseTransactionDateInput,
+  transactionDateToInput,
   topSpendingCategories,
   type Transaction,
   type TransactionType,
@@ -554,6 +557,7 @@ function TransactionsSection({ transactions, onAdd, onEdit, onDelete }: {
   const [search, setSearch] = useState('')
   const [period, setPeriod] = useState('month')
   const [valuesVisible, setValuesVisible] = useState(true)
+  const [expandedId, setExpandedId] = useState<string | null>(null)
   const [deleting, setDeleting] = useState<string | null>(null)
   const monthKey = todayIso().slice(0, 7)
   const periodTransactions = transactions.filter(item => period === 'all' || item.date.slice(0, 7) === monthKey)
@@ -575,44 +579,52 @@ function TransactionsSection({ transactions, onAdd, onEdit, onDelete }: {
   const dayLabel = (day: string) => day === todayIso() ? 'Hoje' : new Intl.DateTimeFormat('pt-BR', { day: 'numeric', month: 'long', year: 'numeric' }).format(new Date(day + 'T12:00:00'))
   async function remove(id: string) {
     setDeleting(id)
-    try { await onDelete(id) } catch (error) { Alert.alert('Erro', error instanceof Error ? error.message : 'Não foi possível excluir.') } finally { setDeleting(null) }
+    try { await onDelete(id); setExpandedId(null) } catch (error) { Alert.alert('Erro', error instanceof Error ? error.message : 'Não foi possível excluir.') } finally { setDeleting(null) }
   }
 
-  return <View style={styles.stack}>
+  return <View style={[styles.stack, { gap: 20 }]}>
     <View style={styles.rowBetween}>
-      <View style={{ flex: 1, gap: 6 }}><Text accessibilityRole="header" style={styles.title}>Transações</Text><Text style={styles.muted}>Cada movimento, tudo no seu controle.</Text></View>
-      <Pressable accessibilityRole="button" accessibilityLabel="Adicionar transação" onPress={onAdd} style={styles.statementAdd}><FinanceIcon name="plus" size={22} color="#FFFFFF" /></Pressable>
+      <View style={{ flex: 1, gap: 5 }}><Text accessibilityRole="header" style={styles.title}>Transações</Text><Text style={styles.muted}>Confira e gerencie seus lançamentos.</Text></View>
+      <Pressable accessibilityRole="button" accessibilityLabel="Adicionar transação" onPress={onAdd} style={styles.statementAdd}><FinanceIcon name="plus" size={18} color="#FFFFFF" /><Text style={styles.statementAddLabel}>Nova</Text></Pressable>
     </View>
-    <View style={{ gap: 12 }}>
-      <Segmented value={period} options={[{ id: 'month', label: 'Este mês' }, { id: 'all', label: 'Todo o histórico' }]} onChange={setPeriod} />
-      <View style={styles.statementCompactTotals}>
-        <View style={styles.statementMetric}><Text style={styles.statementCaption}>Entradas do período</Text><Text numberOfLines={1} adjustsFontSizeToFit style={[styles.statementCompactValue, { color: palette.success }]}>{money(income)}</Text></View>
-        <View style={styles.statementMetric}><Text style={styles.statementCaption}>Saídas do período</Text><Text numberOfLines={1} adjustsFontSizeToFit style={styles.statementCompactValue}>{money(expenses)}</Text></View>
+    <View style={styles.statementControls}>
+      <View style={styles.rowBetween}>
+        <View style={{ flex: 1, maxWidth: 250 }}><AnimatedChoiceTabs value={period} options={[{ id: 'month', label: 'Este mês' }, { id: 'all', label: 'Histórico' }]} onChange={value => { setPeriod(value); setExpandedId(null) }} /></View>
         <Pressable accessibilityRole="button" accessibilityLabel={valuesVisible ? 'Ocultar valores' : 'Mostrar valores'} onPress={() => setValuesVisible(value => !value)} style={styles.eyeButton}><FinanceIcon name={valuesVisible ? 'eye-off' : 'eye'} size={18} color={palette.muted} /></Pressable>
       </View>
-      <View style={styles.statementSearch}><FinanceIcon name="wallet" size={19} color={palette.muted} /><TextInput accessibilityLabel="Buscar transações por descrição ou categoria" value={search} onChangeText={setSearch} placeholder="Buscar descrição ou categoria" placeholderTextColor={palette.muted} style={styles.statementSearchInput} autoCorrect={false} /></View>
-      <View style={styles.statementFilters}>{([{ id: 'all', label: 'Todas' }, { id: 'income', label: 'Entradas' }, { id: 'expense', label: 'Saídas' }] as const).map(option => <Pressable key={option.id} accessibilityRole="button" accessibilityState={{ selected: filter === option.id }} onPress={() => setFilter(option.id)} style={[styles.statementFilter, filter === option.id && styles.statementFilterActive]}><Text style={[styles.statementFilterText, filter === option.id && { color: '#FFFFFF' }]}>{option.label}</Text></Pressable>)}</View>
+      <SoftTransition changeKey={period + String(valuesVisible)} style={styles.statementCompactTotals}>
+        <View style={styles.statementMetric}><Text style={styles.statementCaption}>{period === 'month' ? 'Entradas do mês' : 'Entradas do histórico'}</Text><Text numberOfLines={1} adjustsFontSizeToFit style={[styles.statementCompactValue, { color: palette.success }]}>{money(income)}</Text></View>
+        <View style={styles.statementTotalDivider} />
+        <View style={styles.statementMetric}><Text style={styles.statementCaption}>{period === 'month' ? 'Saídas do mês' : 'Saídas do histórico'}</Text><Text numberOfLines={1} adjustsFontSizeToFit style={styles.statementCompactValue}>{money(expenses)}</Text></View>
+      </SoftTransition>
+      <View style={styles.statementSearch}><FinanceIcon name="search" size={18} color={palette.muted} /><TextInput accessibilityLabel="Buscar transações por descrição ou categoria" value={search} onChangeText={setSearch} placeholder="Buscar lançamento" placeholderTextColor={palette.muted} style={styles.statementSearchInput} autoCorrect={false} />{search.length > 0 && <Pressable accessibilityRole="button" accessibilityLabel="Limpar busca" onPress={() => setSearch('')} style={styles.statementClear}><FinanceIcon name="close" size={16} color={palette.muted} /></Pressable>}</View>
+      <AnimatedChoiceTabs value={filter} options={[{ id: 'all', label: 'Todas' }, { id: 'income', label: 'Entradas' }, { id: 'expense', label: 'Saídas' }]} onChange={value => { setFilter(value as 'all' | TransactionType); setExpandedId(null) }} />
     </View>
-    <View style={styles.rowBetween}><Text style={styles.cardTitle}>Movimentações</Text><Text style={styles.muted}>{filtered.length} {filtered.length === 1 ? 'lançamento' : 'lançamentos'}</Text></View>
+    <SoftTransition changeKey={period + ':' + filter} style={{ gap: 20 }}>
+    <View style={{ gap: 4 }}><View style={styles.rowBetween}><Text style={styles.cardTitle}>Lançamentos</Text><Text style={styles.statementCaption}>{filtered.length} {filtered.length === 1 ? 'registro' : 'registros'}</Text></View>{filtered.length > 0 && <Text style={styles.statementCaption}>Toque em um lançamento para editar ou excluir.</Text>}</View>
     {filtered.length === 0 ? <View style={[styles.statementCard, { alignItems: 'center', paddingVertical: 28 }]}>
       <View style={styles.chatEmblem}><FinanceIcon name="wallet" size={26} /></View>
       <Text style={styles.cardTitle}>{periodTransactions.length === 0 ? 'Seu extrato começa aqui' : 'Nenhum resultado encontrado'}</Text>
       <Text style={styles.chatSubtitle}>{periodTransactions.length === 0 ? 'Registre uma receita ou um gasto para acompanhar seus movimentos.' : 'Tente outra busca ou ajuste os filtros para encontrar um lançamento.'}</Text>
       {periodTransactions.length === 0 ? <SecondaryButton label="Adicionar lançamento" onPress={onAdd} /> : <SecondaryButton label="Limpar filtros" onPress={() => { setSearch(''); setFilter('all') }} />}
-    </View> : [...groups].map(([day, items]) => <View key={day} style={{ gap: 10 }}>
+    </View> : [...groups].map(([day, items]) => <View key={day} style={{ gap: 9 }}>
       <Text style={styles.statementDay}>{dayLabel(day)}</Text>
       <View style={styles.statementGroup}>{items.map((item, index) => <View key={item.id} style={[styles.statementEntry, index > 0 && styles.statementEntryDivider]}>
-        <View style={styles.statementEntryHeading}>
-          <View style={[styles.transactionCategory, { backgroundColor: item.type === 'income' ? 'rgba(74,222,128,0.09)' : 'rgba(110,124,255,0.10)' }]}><FinanceIcon name={item.type === 'income' ? 'arrow' : 'wallet'} size={19} color={item.type === 'income' ? palette.success : palette.primary} /></View>
-          <View style={styles.transactionInfo}><Text style={styles.bodyText}>{item.description || 'Sem descrição'}</Text><Text style={styles.statementCaption}>{labelForCategory(item.category)}{item.paymentMethod ? ' · ' + item.paymentMethod : ''}</Text></View>
-          <Text style={[styles.statementAmount, item.type === 'income' && { color: palette.success }]}>{valuesVisible ? (item.type === 'income' ? '+ ' : '− ') + formatCurrency(item.amount) : '•••••'}</Text>
-        </View>
-        <View style={styles.statementEntryActions}>
-          <Pressable accessibilityRole="button" accessibilityLabel={'Editar ' + item.description} onPress={() => onEdit(item)} style={styles.statementAction}><Text style={styles.linkText}>Editar</Text></Pressable>
-          <Pressable accessibilityRole="button" accessibilityLabel={'Excluir ' + item.description} disabled={deleting !== null} style={[styles.statementAction, deleting !== null && styles.disabled]} onPress={() => Alert.alert('Excluir transação?', item.description + ' · ' + money(item.amount), [{ text: 'Cancelar', style: 'cancel' }, { text: 'Excluir', style: 'destructive', onPress: () => void remove(item.id) }])}><Text style={styles.muted}>{deleting === item.id ? 'Excluindo...' : 'Excluir'}</Text></Pressable>
-        </View>
+        <Pressable accessibilityRole="button" accessibilityLabel={item.description + ' · ' + money(item.amount) + '. Opções do lançamento'} accessibilityState={{ expanded: expandedId === item.id }} onPress={() => setExpandedId(current => current === item.id ? null : item.id)} style={({ pressed }) => [styles.statementEntryHeading, pressed && { opacity: 0.7 }]}>
+          <View style={[styles.statementCategoryIcon, { backgroundColor: item.type === 'income' ? 'rgba(74,222,128,0.08)' : 'rgba(110,124,255,0.10)' }]}><FinanceIcon name={item.type === 'income' ? 'arrow' : 'wallet'} size={17} color={item.type === 'income' ? palette.success : palette.primary} /></View>
+          <View style={{ flex: 1, minWidth: 0, gap: 4 }}><Text numberOfLines={2} style={styles.statementDescription}>{item.description || 'Sem descrição'}</Text><Text numberOfLines={1} style={styles.statementCaption}>{labelForCategory(item.category)}</Text></View>
+          <View style={styles.statementAmountColumn}><Text numberOfLines={1} adjustsFontSizeToFit style={[styles.statementAmount, item.type === 'income' && { color: palette.success }]}>{valuesVisible ? (item.type === 'income' ? '+ ' : '− ') + formatCurrency(item.amount) : '•••••'}</Text><FinanceIcon name="chevron-down" size={12} color={expandedId === item.id ? palette.primary : palette.muted} /></View>
+        </Pressable>
+        {expandedId === item.id && <View style={styles.statementExpanded}>
+          <Text style={styles.statementCaption}>{item.type === 'income' ? 'Receita' : 'Despesa'}{item.paymentMethod ? ' · ' + item.paymentMethod : ''} · {dayLabel(day)}</Text>
+          <View style={styles.statementEntryActions}>
+            <Pressable accessibilityRole="button" accessibilityLabel={'Editar ' + item.description} onPress={() => onEdit(item)} style={styles.statementAction}><Text style={styles.linkText}>Editar lançamento</Text></Pressable>
+            <Pressable accessibilityRole="button" accessibilityLabel={'Excluir ' + item.description} disabled={deleting !== null} style={[styles.statementAction, deleting !== null && styles.disabled]} onPress={() => Alert.alert('Excluir transação?', item.description + ' · ' + money(item.amount), [{ text: 'Cancelar', style: 'cancel' }, { text: 'Excluir', style: 'destructive', onPress: () => void remove(item.id) }])}><Text style={styles.badText}>{deleting === item.id ? 'Excluindo...' : 'Excluir'}</Text></Pressable>
+          </View>
+        </View>}
       </View>)}</View>
     </View>)}
+    </SoftTransition>
   </View>
 }
 
@@ -925,25 +937,22 @@ function AssistantSection({ active, transactions, onGoTo, onTransactionCreated, 
   )
 }
 
-function TransactionModal({
-  open,
-  editing,
-  onClose,
-  onSaved,
-}: {
-  open: boolean
-  editing: Transaction | null
-  onClose: () => void
-  onSaved: () => Promise<void>
+function TransactionModal({ open, editing, onClose, onSaved }: {
+  open: boolean; editing: Transaction | null; onClose: () => void; onSaved: () => Promise<void>
 }) {
   const [type, setType] = useState<TransactionType>('expense')
   const insets = useSafeAreaInsets()
   const [description, setDescription] = useState('')
   const [amount, setAmount] = useState('')
-  const [date, setDate] = useState(todayIso())
+  const [date, setDate] = useState(() => transactionDateToInput(todayIso()))
   const [category, setCategory] = useState(CATEGORIES[0])
   const [paymentMethod, setPaymentMethod] = useState(PAYMENT_METHODS[1])
   const [saving, setSaving] = useState(false)
+  const [formError, setFormError] = useState<string | null>(null)
+  const amountInput = useRef<TextInput>(null)
+  const descriptionInput = useRef<TextInput>(null)
+  const submissionInFlight = useRef(false)
+  const close = () => { if (!submissionInFlight.current) { Keyboard.dismiss(); onClose() } }
 
   useEffect(() => {
     if (!open) return
@@ -951,69 +960,73 @@ function TransactionModal({
       setType(editing?.type ?? 'expense')
       setDescription(editing?.description ?? '')
       setAmount(editing ? editing.amount.toFixed(2).replace('.', ',') : '')
-      setDate(editing?.date.slice(0, 10) ?? todayIso())
+      setDate(transactionDateToInput(editing?.date ?? todayIso()))
       setCategory(editing?.category ?? CATEGORIES[0])
       setPaymentMethod(editing?.paymentMethod ?? PAYMENT_METHODS[1])
+      setFormError(null)
     }, 0)
     return () => clearTimeout(id)
   }, [editing, open])
 
+  function changeDate(value: string) {
+    const digits = value.replace(/\D/g, '').slice(0, 8)
+    setDate(digits.slice(0, 2) + (digits.length > 2 ? '/' + digits.slice(2, 4) : '') + (digits.length > 4 ? '/' + digits.slice(4) : ''))
+    setFormError(null)
+  }
+
   async function save() {
-    if (saving) return
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isFinite(Date.parse(date)) || new Date(date).toISOString().slice(0, 10) !== date) {
-      Alert.alert('Data inválida', 'Informe uma data válida no formato YYYY-MM-DD.')
-      return
-    }
+    if (submissionInFlight.current) return
+    const isoDate = parseTransactionDateInput(date)
     const parsedAmount = moneyToNumber(amount)
-    if (!description.trim() || parsedAmount <= 0) {
-      Alert.alert('Dados incompletos', 'Informe descricao e valor.')
-      return
-    }
+    if (parsedAmount <= 0) { setFormError('Informe um valor maior que zero.'); amountInput.current?.focus(); return }
+    if (!description.trim()) { setFormError('Dê um nome ao lançamento para encontrá-lo no extrato.'); descriptionInput.current?.focus(); return }
+    if (!isoDate) { setFormError('Confira a data. Use o formato DD/MM/AAAA.'); return }
+    submissionInFlight.current = true
     setSaving(true)
+    setFormError(null)
     try {
-      const payload = { type, description: description.trim(), amount: parsedAmount, date, category, paymentMethod }
+      const payload = { type, description: description.trim(), amount: parsedAmount, date: isoDate, category, paymentMethod }
       if (editing) await updateTransaction(editing.id, payload)
       else await createTransaction(payload)
-      await onSaved()
+      try { await onSaved() } catch {
+        Alert.alert('Lançamento salvo', 'Não foi possível atualizar o extrato agora. Puxe a lista para atualizar.')
+      }
+      Keyboard.dismiss()
       onClose()
     } catch (error) {
-      Alert.alert('Erro', error instanceof Error ? error.message : 'Nao foi possivel salvar.')
+      setFormError(error instanceof Error ? error.message : 'Não foi possível salvar. Tente novamente.')
     } finally {
+      submissionInFlight.current = false
       setSaving(false)
     }
   }
 
-  return (
-    <Modal visible={open} animationType="slide" transparent onRequestClose={onClose}>
-      <KeyboardAvoidingView style={styles.modalBackdrop} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <View style={[styles.modalCard, { paddingBottom: Math.max(insets.bottom, 16) }]}>
-          <View style={styles.sheetHandle} />
-          <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.modalForm}>
-          <Text style={styles.title}>{editing ? 'Editar transacao' : 'Nova transacao'}</Text>
-          <Segmented
-            value={type}
-            options={[
-              { id: 'expense', label: 'Gasto' },
-              { id: 'income', label: 'Receita' },
-            ]}
-            onChange={(value) => setType(value as TransactionType)}
-          />
-          <Field label="Descricao" value={description} onChangeText={setDescription} placeholder="Mercado, salario..." />
-          <Field label="Valor (R$)" value={amount} onChangeText={setAmount} keyboardType="decimal-pad" placeholder="0,00" />
-          <Field label="Data" value={date} onChangeText={setDate} placeholder="YYYY-MM-DD" />
-          <Text style={styles.label}>Categoria</Text>
-          <ChoiceRow value={category} options={CATEGORIES.map((item) => ({ id: item, label: labelForCategory(item) }))} onChange={setCategory} />
-          <Text style={styles.label}>Pagamento</Text>
-          <ChoiceRow value={paymentMethod} options={PAYMENT_METHODS.map((item) => ({ id: item, label: item }))} onChange={setPaymentMethod} />
-          </ScrollView>
-          <View style={styles.modalActions}>
-            <SecondaryButton label="Cancelar" onPress={onClose} />
-            <PrimaryButton label={saving ? 'Salvando...' : 'Salvar'} onPress={() => void save()} disabled={saving} />
-          </View>
+  return <Modal visible={open} animationType="slide" transparent onRequestClose={close}>
+    <KeyboardAvoidingView style={styles.modalBackdrop} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+      <View style={[styles.manualSheet, { paddingBottom: Math.max(insets.bottom, 16) }]}>
+        <View style={styles.sheetHandle} />
+        <View style={styles.manualHeader}>
+          <View style={{ flex: 1, gap: 5 }}><Text accessibilityRole="header" style={styles.title}>{editing ? 'Editar lançamento' : 'Novo lançamento'}</Text><Text style={styles.muted}>Preencha os detalhes da movimentação.</Text></View>
+          <Pressable accessibilityRole="button" accessibilityLabel="Fechar lançamento" disabled={saving} onPress={close} style={styles.manualClose}><FinanceIcon name="close" size={20} color={palette.muted} /></Pressable>
         </View>
-      </KeyboardAvoidingView>
-    </Modal>
-  )
+        <ScrollView style={{ flexShrink: 1 }} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" showsVerticalScrollIndicator={false} contentContainerStyle={styles.manualForm}>
+          <AnimatedChoiceTabs value={type} options={[{ id: 'expense', label: 'Despesa' }, { id: 'income', label: 'Receita' }]} disabled={saving} onChange={value => { setType(value as TransactionType); setFormError(null) }} />
+          <SoftTransition changeKey={type} style={styles.manualAmountCard}>
+            <Text style={styles.statementCaption}>{type === 'income' ? 'Quanto você recebeu?' : 'Qual foi o valor do gasto?'}</Text>
+            <View style={styles.manualAmountRow}><Text style={[styles.manualCurrency, type === 'income' && { color: palette.success }]}>R$</Text><TextInput ref={amountInput} accessibilityLabel="Valor do lançamento em reais" editable={!saving} value={amount} onChangeText={value => { setAmount(value); setFormError(null) }} keyboardType="decimal-pad" placeholder="0,00" placeholderTextColor="#596173" style={[styles.manualAmountInput, type === 'income' && { color: palette.success }]} returnKeyType="next" onSubmitEditing={() => descriptionInput.current?.focus()} /></View>
+          </SoftTransition>
+          <View style={styles.field}><Text style={styles.label}>Descrição</Text><TextInput ref={descriptionInput} accessibilityLabel="Descrição do lançamento" editable={!saving} value={description} onChangeText={value => { setDescription(value); setFormError(null) }} placeholder={type === 'income' ? 'Ex.: salário, trabalho extra' : 'Ex.: mercado, conta de luz'} placeholderTextColor={palette.muted} style={styles.input} returnKeyType="done" /></View>
+          <View style={styles.field}><View style={styles.rowBetween}><Text style={styles.label}>Data do lançamento</Text><Pressable accessibilityRole="button" disabled={saving} onPress={() => { setDate(transactionDateToInput(todayIso())); setFormError(null) }} style={styles.manualToday}><Text style={styles.linkText}>Usar hoje</Text></Pressable></View><TextInput accessibilityLabel="Data do lançamento, dia mês e ano" editable={!saving} value={date} onChangeText={changeDate} keyboardType="number-pad" placeholder="DD/MM/AAAA" placeholderTextColor={palette.muted} style={styles.input} maxLength={10} /></View>
+          <View style={styles.manualOptionsSection}><Text style={styles.label}>Categoria</Text><View style={styles.manualChoices}>{[...new Set([...CATEGORIES, category])].map(item => <Pressable key={item} accessibilityRole="button" accessibilityState={{ selected: category === item }} disabled={saving} onPress={() => setCategory(item)} style={[styles.manualChip, category === item && styles.manualChipActive]}><Text style={[styles.manualChipText, category === item && { color: '#FFFFFF' }]}>{labelForCategory(item)}</Text></Pressable>)}</View></View>
+          <View style={styles.manualOptionsSection}><Text style={styles.label}>{type === 'income' ? 'Forma de recebimento' : 'Forma de pagamento'}</Text><View style={styles.manualChoices}>{[...new Set([...PAYMENT_METHODS, paymentMethod])].map(item => <Pressable key={item} accessibilityRole="button" accessibilityState={{ selected: paymentMethod === item }} disabled={saving} onPress={() => setPaymentMethod(item)} style={[styles.manualChip, paymentMethod === item && styles.manualChipActive]}><Text style={[styles.manualChipText, paymentMethod === item && { color: '#FFFFFF' }]}>{item}</Text></Pressable>)}</View></View>
+        </ScrollView>
+        <View style={styles.manualFooter}>
+          {formError && <Text accessibilityRole="alert" accessibilityLiveRegion="polite" style={styles.badText}>{formError}</Text>}
+          <PrimaryButton label={saving ? 'Salvando...' : editing ? 'Salvar alterações' : type === 'income' ? 'Registrar receita' : 'Registrar despesa'} onPress={() => void save()} disabled={saving} />
+        </View>
+      </View>
+    </KeyboardAvoidingView>
+  </Modal>
 }
 
 function MoreSection({ user, onGoTo, onLogout }: { user: UserProfile; onGoTo: (section: Section) => void; onLogout: () => void }) {
@@ -1123,17 +1136,6 @@ function Field(props: React.ComponentProps<typeof TextInput> & { label: string; 
   )
 }
 
-function Segmented({ value, options, onChange }: { value: string; options: { id: string; label: string }[]; onChange: (value: string) => void }) {
-  return (
-    <View style={styles.segmented}>
-      {options.map((option) => (
-        <Pressable key={option.id} accessibilityRole="button" accessibilityState={{ selected: value === option.id }} style={[styles.segmentButton, value === option.id && styles.segmentActive]} onPress={() => onChange(option.id)}>
-          <Text style={[styles.segmentText, value === option.id && styles.segmentTextActive]}>{option.label}</Text>
-        </Pressable>
-      ))}
-    </View>
-  )
-}
 
 function ChoiceRow({ value, options, onChange }: { value: string; options: { id: string; label: string }[]; onChange: (value: string) => void }) {
   return (
@@ -1184,27 +1186,31 @@ const styles = StyleSheet.create({
   roundButton: { width: 44, height: 44, borderRadius: 22, backgroundColor: 'rgba(255,255,255,0.06)', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)' },
   conversationContext: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingBottom: 16, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.08)' },
   contextLink: { flexDirection: 'row', alignItems: 'center', gap: 5, minHeight: 44 },
-  statementCompactTotals: { flexDirection: 'row', alignItems: 'center', gap: 14, paddingHorizontal: 4, paddingVertical: 2 },
+  statementCompactTotals: { flexDirection: 'row', alignItems: 'center', gap: 18, paddingHorizontal: 4, paddingBottom: 4 },
   statementCompactValue: { color: '#E3E6EF', fontSize: 16, fontWeight: '500' },
+  statementControls: { gap: 12 },
+  statementAddLabel: { color: '#FFFFFF', fontSize: 13, fontWeight: '600' },
+  statementTotalDivider: { width: 1, height: 30, backgroundColor: 'rgba(255,255,255,0.08)' },
+  statementClear: { minHeight: 44, minWidth: 44, alignItems: 'center', justifyContent: 'center' },
+  statementCategoryIcon: { width: 36, height: 36, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+  statementDescription: { color: '#E3E6EF', fontSize: 14, lineHeight: 19, fontWeight: '500' },
+  statementAmountColumn: { maxWidth: '43%', minWidth: 62, flexShrink: 1, alignItems: 'flex-end', gap: 6 },
+  statementExpanded: { gap: 8, padding: 10, marginBottom: 12, borderRadius: 12, backgroundColor: 'rgba(255,255,255,0.03)' },
   statementCard: { padding: 20, gap: 16, borderRadius: 26, borderWidth: 1, borderColor: 'rgba(110,124,255,0.22)', backgroundColor: '#141924' },
-  statementAdd: { width: 48, height: 48, borderRadius: 24, alignItems: 'center', justifyContent: 'center', backgroundColor: '#6E7CFF' },
+  statementAdd: { minHeight: 44, flexDirection: 'row', gap: 6, paddingHorizontal: 14, borderRadius: 22, alignItems: 'center', justifyContent: 'center', backgroundColor: '#6E7CFF' },
   statementEyebrow: { color: '#6E7CFF', fontSize: 10, fontWeight: '600', letterSpacing: 1.6 },
-  statementMetric: { flex: 1, gap: 8 },
+  statementMetric: { flex: 1, gap: 4 },
   statementCaption: { color: '#A1A7B3', fontSize: 11, lineHeight: 17 },
-  statementSearch: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 16, borderRadius: 22, backgroundColor: '#141924', borderWidth: 1, borderColor: 'rgba(255,255,255,0.10)' },
-  statementSearchInput: { flex: 1, minWidth: 0, minHeight: 52, paddingVertical: 12, color: '#FFFFFF', fontSize: 14 },
-  statementFilters: { flexDirection: 'row', gap: 8 },
-  statementFilter: { flex: 1, minHeight: 44, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 10, borderRadius: 22, borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)', backgroundColor: '#141924' },
-  statementFilterActive: { borderColor: '#6E7CFF', backgroundColor: 'rgba(110,124,255,0.18)' },
-  statementFilterText: { color: '#A1A7B3', fontSize: 13, fontWeight: '500' },
-  statementDay: { color: '#A1A7B3', fontSize: 12, fontWeight: '500', paddingHorizontal: 4, textTransform: 'capitalize' },
-  statementGroup: { borderRadius: 24, paddingHorizontal: 16, borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)', backgroundColor: '#141924' },
-  statementEntry: { paddingTop: 16, paddingBottom: 4, gap: 4 },
+  statementSearch: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingLeft: 14, paddingRight: 4, borderRadius: 16, backgroundColor: '#141924', borderWidth: 1, borderColor: 'rgba(255,255,255,0.07)' },
+  statementSearchInput: { flex: 1, minWidth: 0, minHeight: 48, paddingVertical: 12, color: '#FFFFFF', fontSize: 14 },
+  statementDay: { color: '#A1A7B3', fontSize: 12, fontWeight: '500', paddingHorizontal: 2, textTransform: 'capitalize' },
+  statementGroup: { borderRadius: 20, paddingHorizontal: 14, backgroundColor: '#141924' },
+  statementEntry: { gap: 0 },
   statementEntryDivider: { borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.08)' },
-  statementEntryHeading: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 10 },
-  statementAmount: { color: '#E3E6EF', fontSize: 13, fontWeight: '500', flexShrink: 1 },
-  statementEntryActions: { flexDirection: 'row', justifyContent: 'flex-end', gap: 4 },
-  statementAction: { minHeight: 44, minWidth: 60, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 10 },
+  statementEntryHeading: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 15, minHeight: 76 },
+  statementAmount: { color: '#E3E6EF', fontSize: 14, fontWeight: '600', textAlign: 'right' },
+  statementEntryActions: { flexDirection: 'row', justifyContent: 'space-between', gap: 12 },
+  statementAction: { minHeight: 44, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 8 },
   balanceCard: { ...authVisuals.card, gap: 26, padding: 22 },
   balanceArrow: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: '#6E7CFF' },
   balanceValue: { flexShrink: 1, color: '#FFFFFF', fontSize: 37, fontWeight: '500', letterSpacing: -0.8 },
@@ -1318,6 +1324,21 @@ const styles = StyleSheet.create({
   chatBubble: { ...authVisuals.card, gap: 8, padding: 18, maxWidth: '88%' },
   userBubble: { alignSelf: 'flex-end', backgroundColor: '#6E7CFF', borderBottomRightRadius: 6, borderColor: '#6E7CFF' },
   assistantBubble: { alignSelf: 'flex-start', backgroundColor: '#141924', borderBottomLeftRadius: 6 },
+  manualSheet: { maxHeight: '92%', width: '100%', maxWidth: 600, alignSelf: 'center', paddingHorizontal: 22, paddingTop: 12, gap: 16, borderTopLeftRadius: 30, borderTopRightRadius: 30, backgroundColor: '#141924', borderWidth: 1, borderColor: 'rgba(255,255,255,0.10)' },
+  manualHeader: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  manualClose: { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center', borderRadius: 22, backgroundColor: 'rgba(255,255,255,0.04)' },
+  manualForm: { gap: 20, paddingBottom: 8 },
+  manualAmountCard: { gap: 8, padding: 18, borderRadius: 22, backgroundColor: '#10141D', borderWidth: 1, borderColor: 'rgba(110,124,255,0.14)' },
+  manualAmountRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  manualCurrency: { color: '#A1A7B3', fontSize: 22, fontWeight: '500' },
+  manualAmountInput: { flex: 1, minWidth: 0, minHeight: 56, color: '#FFFFFF', fontSize: 36, fontWeight: '600', paddingVertical: 4 },
+  manualToday: { minHeight: 44, justifyContent: 'center', paddingHorizontal: 8 },
+  manualOptionsSection: { gap: 10 },
+  manualChoices: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  manualChip: { minHeight: 44, justifyContent: 'center', paddingHorizontal: 14, paddingVertical: 10, borderRadius: 14, borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)', backgroundColor: '#10141D' },
+  manualChipActive: { borderColor: '#6E7CFF', backgroundColor: 'rgba(110,124,255,0.15)' },
+  manualChipText: { color: '#A1A7B3', fontSize: 12, lineHeight: 18 },
+  manualFooter: { gap: 10, paddingTop: 14, borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.08)' },
   modalBackdrop: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.62)' },
   modalCard: { maxHeight: '92%', gap: 16, padding: 24, paddingBottom: 38, borderTopLeftRadius: 32, borderTopRightRadius: 32, backgroundColor: '#141924', borderWidth: 1, borderColor: 'rgba(255,255,255,0.14)' },
   modalActions: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, justifyContent: 'flex-end' },

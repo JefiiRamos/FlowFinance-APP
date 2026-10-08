@@ -111,3 +111,18 @@ export function financialInsight(transactions: Transaction[]): string {
   if (percent < 100) return 'Atencao: os gastos ja consomem boa parte da receita do mes.'
   return 'Os gastos do mes passaram da receita. Priorize cortes imediatos e revise despesas fixas.'
 }
+
+/** Convert a Brazilian calendar date to the API's ISO date, rejecting rollover dates. */
+export function parseTransactionDateInput(value: string): string | null {
+  const match = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(value.trim())
+  if (!match) return null
+  const [, day, month, year] = match
+  const iso = year + '-' + month + '-' + day
+  const parsed = new Date(iso + 'T12:00:00Z')
+  return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === iso ? iso : null
+}
+
+export function transactionDateToInput(iso: string): string {
+  const [year, month, day] = iso.slice(0, 10).split('-')
+  return day + '/' + month + '/' + year
+}

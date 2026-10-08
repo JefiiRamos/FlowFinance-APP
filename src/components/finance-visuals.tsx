@@ -11,8 +11,11 @@ export function FinanceBackground() {
   return <LinearGradient pointerEvents="none" colors={['#090B10', '#0F131C', '#141627']} style={StyleSheet.absoluteFill} />
 }
 
-export type IconName = 'home' | 'wallet' | 'plus' | 'chat' | 'grid' | 'target' | 'chart' | 'repeat' | 'sparkles' | 'arrow' | 'eye' | 'eye-off' | 'send' | 'back' | 'user' | 'logout' | 'check' | 'mail' | 'lock'
+export type IconName = 'home' | 'wallet' | 'plus' | 'chat' | 'grid' | 'target' | 'chart' | 'repeat' | 'sparkles' | 'arrow' | 'eye' | 'eye-off' | 'send' | 'back' | 'user' | 'logout' | 'check' | 'mail' | 'lock' | 'search' | 'close' | 'chevron-down'
 const paths: Partial<Record<IconName, string>> = {
+  search: 'M21 21l-5-5M18 10a8 8 0 1 1-16 0 8 8 0 0 1 16 0Z',
+  close: 'M6 6l12 12M18 6 6 18',
+  'chevron-down': 'm6 9 6 6 6-6',
   home: 'M3 10 12 3l9 7v10a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1Z',
   wallet: 'M4 5h14v3H5a2 2 0 0 1 0-4h12M4 8v11a2 2 0 0 0 2 2h14V8ZM16 12h4v5h-4Z',
   plus: 'M12 4v16M4 12h16', chat: 'M4 4h16v13H9l-5 4ZM8 8h8M8 12h5',
