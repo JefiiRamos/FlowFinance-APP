@@ -16,6 +16,7 @@ import {
   TextInput,
   View,
   useWindowDimensions,
+  type DimensionValue,
 } from 'react-native'
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { StatusBar } from 'expo-status-bar'
@@ -83,7 +84,7 @@ type AuthMode = 'login' | 'register'
 const tabs: { id: Section; label: string; icon: IconName }[] = [
   { id: 'assistente', label: 'Conversa', icon: 'sparkles' },
   { id: 'transacoes', label: 'Extrato', icon: 'wallet' },
-  { id: 'metas', label: 'Planejar', icon: 'target' },
+  { id: 'inicio', label: 'Dashboard', icon: 'chart' },
   { id: 'mais', label: 'Perfil', icon: 'user' },
 ]
 
@@ -227,7 +228,7 @@ export default function FlowFinanceApp() {
 
     <View style={styles.app}>
       <SwipeTabs
-        index={section === 'assistente' ? 0 : section === 'transacoes' ? 1 : section === 'metas' ? 2 : 3}
+        index={section === 'assistente' ? 0 : section === 'transacoes' ? 1 : section === 'inicio' ? 2 : 3}
         onIndexChange={navigateByTab}
         footer={<KeyboardTabFooter><BottomTabs section={section} onChange={navigateToSection} /></KeyboardTabFooter>}
         pages={[
@@ -238,13 +239,13 @@ export default function FlowFinanceApp() {
           <ScrollView key="transactions" style={styles.content} nestedScrollEnabled keyboardShouldPersistTaps="handled" contentContainerStyle={styles.contentInner} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={palette.primary} />}>
             <TransactionsSection transactions={transactions} onAdd={() => { setEditingTransaction(null); setTransactionModalOpen(true) }} onEdit={(transaction) => { setEditingTransaction(transaction); setTransactionModalOpen(true) }} onDelete={async (id) => { await deleteTransaction(id); await refresh() }} />
           </ScrollView>,
-          <ScrollView key="planning" style={styles.content} nestedScrollEnabled keyboardShouldPersistTaps="handled" contentContainerStyle={styles.contentInner} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={palette.primary} />}>
-            <GoalsSection transactions={transactions} goals={goalsList} limits={limits} onRefresh={refresh} onLimitsChange={setLimits} />
+          <ScrollView key="dashboard" style={styles.content} nestedScrollEnabled keyboardShouldPersistTaps="handled" contentContainerStyle={styles.contentInner} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={palette.primary} />}>
+            <HomeSection transactions={transactions} goals={goalsList} onGoTo={navigateToSection} />
           </ScrollView>,
           <View key="profile" style={styles.safeArea}>
-            {['inicio', 'graficos', 'recorrentes', 'simulador'].includes(section) && <Pressable accessibilityRole="button" accessibilityLabel="Voltar para o perfil" onPress={() => navigateToSection('mais')} style={[styles.inline, { minHeight: 44, paddingHorizontal: 24 }]}><FinanceIcon name="back" /><Text style={styles.linkText}>Voltar</Text></Pressable>}
+            {['metas', 'graficos', 'recorrentes', 'simulador'].includes(section) && <Pressable accessibilityRole="button" accessibilityLabel="Voltar para o perfil" onPress={() => navigateToSection('mais')} style={[styles.inline, { minHeight: 44, paddingHorizontal: 24 }]}><FinanceIcon name="back" /><Text style={styles.linkText}>Voltar</Text></Pressable>}
             <ScrollView style={styles.content} nestedScrollEnabled keyboardShouldPersistTaps="handled" contentContainerStyle={styles.contentInner} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={palette.primary} />}>
-              {section === 'inicio' ? <HomeSection transactions={transactions} goals={goalsList} onGoTo={navigateToSection} /> : section === 'graficos' ? <ChartsSection transactions={transactions} /> : section === 'recorrentes' ? <RecurringSection income={recurringIncome} expenses={recurringExpenses} onRefresh={refresh} /> : section === 'simulador' ? <SimulatorSection transactions={transactions} /> : <MoreSection user={user} onGoTo={navigateToSection} onLogout={handleLogout} />}
+              {section === 'metas' ? <GoalsSection transactions={transactions} goals={goalsList} limits={limits} onRefresh={refresh} onLimitsChange={setLimits} /> : section === 'graficos' ? <ChartsSection transactions={transactions} /> : section === 'recorrentes' ? <RecurringSection income={recurringIncome} expenses={recurringExpenses} onRefresh={refresh} /> : section === 'simulador' ? <SimulatorSection transactions={transactions} /> : <MoreSection user={user} onGoTo={navigateToSection} onLogout={handleLogout} />}
             </ScrollView>
           </View>,
         ]}
@@ -467,6 +468,7 @@ function HomeSection({ transactions, goals, onGoTo }: { transactions: Transactio
   const monthTransactions = useMemo(() => currentMonthTransactions(transactions, new Date(year, month, 1)), [transactions, year, month])
   const monthlyIncome = getTotalIncome(monthTransactions)
   const monthlyExpenses = getTotalExpenses(monthTransactions)
+  const categories = topSpendingCategories(monthTransactions)
   const balance = getBalance(transactions)
   const projected = getProjectedEndOfMonthBalance(transactions, balance)
   const recent = [...transactions].sort((a, b) => +new Date(b.date) - +new Date(a.date)).slice(0, 6)
@@ -482,6 +484,7 @@ function HomeSection({ transactions, goals, onGoTo }: { transactions: Transactio
 
   return (
     <View style={styles.stack}>
+      <View style={{ gap: 6 }}><Text accessibilityRole="header" style={styles.title}>Dashboard</Text><Text style={styles.muted}>Seu saldo, o movimento do mês e os próximos passos.</Text></View>
       <View style={styles.balanceCard}>
         <View style={styles.rowBetween}>
           <View style={styles.inline}><FinanceIcon name="wallet" size={18} /><Text style={styles.muted}>Seu saldo disponível</Text></View>
@@ -502,6 +505,13 @@ function HomeSection({ transactions, goals, onGoTo }: { transactions: Transactio
         <View style={styles.inline}><FinanceIcon name="sparkles" /><Text style={styles.cardTitle}>Um olhar sobre seu mês</Text></View>
         <Text style={styles.bodyText}>{financialInsight(transactions)}</Text>
         <PrimaryButton label="Registre um gasto com a IA" onPress={() => onGoTo('assistente')} />
+      </View>
+      <View style={styles.panel}>
+        <View style={styles.rowBetween}><Text style={styles.cardTitle}>Gastos por categoria · este mês</Text><Pressable accessibilityRole="button" onPress={() => onGoTo('graficos')}><Text style={styles.linkText}>Relatórios</Text></Pressable></View>
+        {categories.length === 0 ? <EmptyText text="Registre gastos para ver a distribuição do mês." /> : categories.map(item => <View key={item.category} style={styles.categoryLine}>
+          <View style={styles.rowBetween}><Text style={styles.bodyText}>{labelForCategory(item.category)}</Text><Text style={styles.muted}>{balanceVisible ? formatCurrency(item.amount) : '•••••'}</Text></View>
+          {balanceVisible && <View style={styles.categoryTrack}><View style={[styles.categoryFill, { width: (monthlyExpenses > 0 ? item.amount / monthlyExpenses * 100 + '%' : '0%') as DimensionValue }]} /></View>}
+        </View>)}
       </View>
       <Text style={styles.cardTitle}>Ações rápidas</Text>
       <View style={styles.quickActions}>
@@ -989,7 +999,7 @@ function TransactionModal({
 
 function MoreSection({ user, onGoTo, onLogout }: { user: UserProfile; onGoTo: (section: Section) => void; onLogout: () => void }) {
   const entries: { id: Section; title: string; description: string; icon: IconName }[] = [
-    { id: 'inicio', title: 'Visão geral', description: 'Veja seu saldo, projeções e movimentações', icon: 'home' },
+    { id: 'inicio', title: 'Dashboard', description: 'Veja seu saldo, projeções e movimentações', icon: 'chart' },
     { id: 'metas', title: 'Metas e orçamento', description: 'Planeje seus objetivos e limites de gastos', icon: 'target' },
     { id: 'graficos', title: 'Gráficos e relatórios', description: 'Entenda para onde vai seu dinheiro', icon: 'chart' },
     { id: 'recorrentes', title: 'Receitas e contas fixas', description: 'Organize o que se repete todo mês', icon: 'repeat' },
@@ -1003,7 +1013,7 @@ function MoreSection({ user, onGoTo, onLogout }: { user: UserProfile; onGoTo: (s
 }
 
 function BottomTabs({ section, onChange }: { section: Section; onChange: (section: Section) => void }) {
-  const selected = ['inicio', 'graficos', 'recorrentes', 'simulador'].includes(section) ? 'mais' : section
+  const selected = ['metas', 'graficos', 'recorrentes', 'simulador'].includes(section) ? 'mais' : section
   const selection = usePagerPosition()
   const [rowWidth, setRowWidth] = useState(0)
   const cellWidth = Math.max(0, (rowWidth - 8) / tabs.length)
